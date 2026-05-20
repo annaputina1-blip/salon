@@ -10,6 +10,8 @@
   --line: rgba(23, 23, 19, 0.12);
   --white: #ffffff;
   --shadow: 0 24px 70px rgba(23, 23, 19, 0.13);
+  --warm-gradient: linear-gradient(135deg, #ffe266 0%, #ffbd38 48%, #ff8f1c 100%);
+  --warm-gradient-soft: linear-gradient(145deg, rgba(255, 226, 102, 0.95) 0%, rgba(255, 189, 56, 0.92) 54%, rgba(255, 143, 28, 0.9) 100%);
   --script: "Great Vibes", "Segoe Script", "Brush Script MT", cursive;
 }
 
@@ -100,7 +102,7 @@ img {
   padding: 10px 16px;
   border: 1px solid var(--ink);
   border-radius: 999px;
-  background: var(--yellow);
+  background: var(--warm-gradient);
   font-weight: 750;
 }
 
@@ -225,7 +227,7 @@ h3 {
 }
 
 .button.primary {
-  background: var(--orange);
+  background: var(--warm-gradient);
   color: var(--ink);
 }
 
@@ -291,7 +293,7 @@ h3 {
   display: grid;
   place-items: center;
   padding: 14px;
-  background: var(--yellow);
+  background: var(--warm-gradient-soft);
   font-weight: 800;
   text-align: center;
 }
@@ -511,6 +513,18 @@ h3 {
   color: var(--white);
 }
 
+.calculator-page {
+  background: var(--ink);
+}
+
+.advanced-calculator {
+  align-items: start;
+}
+
+.calculator-intro {
+  min-width: 0;
+}
+
 .calculator-card,
 .total-card,
 .booking-form,
@@ -563,6 +577,7 @@ legend {
   margin-left: auto;
   color: var(--green-soft);
   font-weight: 850;
+  white-space: nowrap;
 }
 
 input[type="checkbox"] {
@@ -571,12 +586,44 @@ input[type="checkbox"] {
   accent-color: var(--orange);
 }
 
+input[type="checkbox"]:disabled,
+.field-label input:disabled,
+.field-label select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.discount-toggle.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.field-label {
+  display: grid !important;
+  align-items: stretch !important;
+  gap: 8px !important;
+  color: rgba(255, 255, 255, 0.86);
+  font-weight: 800;
+}
+
+.field-label input,
+.field-label select {
+  width: 100%;
+  min-height: 46px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 14px;
+  color: var(--ink);
+  background: var(--white);
+  font: inherit;
+}
+
 .total-card {
   align-self: start;
   position: sticky;
   top: 92px;
   padding: 28px;
-  background: var(--yellow);
+  background: var(--warm-gradient-soft);
   color: var(--ink);
   border: 1px solid var(--ink);
   box-shadow: 8px 8px 0 var(--green);
@@ -601,6 +648,41 @@ input[type="checkbox"] {
   min-height: 72px;
   margin-bottom: 20px;
   color: #444232;
+}
+
+.total-breakdown {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(23, 23, 19, 0.18);
+}
+
+.total-breakdown div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.total-breakdown span {
+  min-height: auto;
+  margin: 0;
+}
+
+.calculator-request {
+  background:
+    linear-gradient(135deg, rgba(255, 204, 0, 0.34), rgba(81, 215, 47, 0.12) 38%, transparent 70%),
+    var(--paper);
+}
+
+.request-summary {
+  margin-top: 22px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--white);
+  color: var(--muted);
+  white-space: pre-wrap;
 }
 
 .review-grid {
@@ -660,7 +742,7 @@ input[type="checkbox"] {
   place-items: center;
   border: 1px solid var(--ink);
   border-radius: 50%;
-  background: var(--yellow);
+  background: var(--warm-gradient);
   color: var(--ink);
   font-family: var(--script);
   font-size: 34px;
@@ -685,7 +767,7 @@ input[type="checkbox"] {
 }
 
 .slider-dot.active {
-  background: var(--orange);
+  background: var(--warm-gradient);
 }
 
 .booking {
@@ -707,17 +789,84 @@ input[type="checkbox"] {
 }
 
 .social-links {
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
   margin-top: 24px;
 }
 
 .social-links a {
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--white);
-  font-weight: 750;
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  background: var(--warm-gradient);
+  color: var(--ink);
+  box-shadow: 5px 5px 0 var(--ink);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.social-links a:hover {
+  transform: translate(2px, 2px);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.social-links svg {
+  width: 30px;
+  height: 30px;
+  display: block;
+}
+
+.social-links svg path {
+  fill: currentColor;
+}
+
+.social-button.whatsapp {
+  color: #138a38;
+}
+
+.social-links .social-button.whatsapp:hover {
+  color: #138a38;
+}
+
+.social-button.telegram {
+  color: #1685c7;
+}
+
+.social-links .social-button.telegram:hover {
+  color: #1685c7;
+}
+
+.social-button.vk {
+  color: #2474d8;
+}
+
+.social-links .social-button.vk:hover {
+  color: #2474d8;
+}
+
+.social-button.max {
+  color: var(--ink);
+}
+
+.social-links .social-button.max:hover {
+  color: var(--ink);
+}
+
+.social-links .max-logo {
+  width: 34px;
+  height: 34px;
+  filter: drop-shadow(0 1px 0 rgba(23, 23, 19, 0.22));
+}
+
+.social-links .max-logo-bg {
+  fill: url("#maxLogoGradient");
+}
+
+.social-links .max-logo-mark {
+  fill: var(--white);
 }
 
 .booking-form {
@@ -726,7 +875,7 @@ input[type="checkbox"] {
   padding: clamp(24px, 4vw, 36px);
   border: 1px solid var(--ink);
   background: var(--white);
-  box-shadow: 9px 9px 0 var(--orange);
+  box-shadow: 9px 9px 0 rgba(255, 189, 56, 0.92), 14px 14px 0 rgba(255, 143, 28, 0.34);
 }
 
 .booking-form label {
@@ -786,6 +935,10 @@ input[type="checkbox"] {
 
   .calculator-card {
     grid-template-columns: 1fr;
+  }
+
+  .advanced-calculator {
+    gap: 24px;
   }
 
   .total-card {
@@ -888,6 +1041,10 @@ input[type="checkbox"] {
   .calculator label span {
     min-width: 74px;
     text-align: right;
+  }
+
+  .discount-panel .discount-toggle {
+    align-items: flex-start;
   }
 
   .footer {

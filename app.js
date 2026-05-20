@@ -6,12 +6,86 @@ const formatRub = new Intl.NumberFormat("ru-RU", {
 
 const serviceInputs = Array.from(document.querySelectorAll("[data-service]"));
 const discountInput = document.querySelector("#courseDiscount");
+const extraDiscount = document.querySelector("#extraDiscount");
+const promoCode = document.querySelector("#promoCode");
 const totalPrice = document.querySelector("#totalPrice");
+const rawTotalNode = document.querySelector("#rawTotal");
+const discountAmountNode = document.querySelector("#discountAmount");
 const selectedServices = document.querySelector("#selectedServices");
 const bookingLink = document.querySelector("#calcBookingLink");
 const messageField = document.querySelector("#clientMessage");
+const requestSummary = document.querySelector("#requestSummary");
 
-function updateCalculator() {
+let lastCalculation = {
+  selected: [],
+  rawTotal: 0,
+  discountAmount: 0,
+  total: 0,
+  discountLabels: [],
+};
+
+function getPromoDiscount(value) {
+  const code = value.trim().toUpperCase();
+
+  if (code === "LASER10") return { percent: 10, label: "промокод LASER10 - 10%" };
+  if (code === "LPG15") return { percent: 15, label: "промокод LPG15 - 15%" };
+  if (code === "BEAUTY5") return { percent: 5, label: "промокод BEAUTY5 - 5%" };
+
+  return null;
+}
+
+function isCourseDiscountEligible(selected) {
+  return selected.some((item) => /курс|комплекс|все тело/i.test(item.title));
+}
+
+function getExternalDiscount() {
+  const availableDiscounts = [];
+  const extraPercent = Number(extraDiscount?.value || 0);
+
+  if (extraPercent > 0) {
+    const selectedOption = extraDiscount.options[extraDiscount.selectedIndex];
+    availableDiscounts.push({
+      percent: extraPercent,
+      label: selectedOption.textContent,
+    });
+  }
+
+  const promo = getPromoDiscount(promoCode?.value || "");
+  if (promo) {
+    availableDiscounts.push(promo);
+  }
+
+  return availableDiscounts.sort((a, b) => b.percent - a.percent)[0] || null;
+}
+
+function syncDiscountControls(selected) {
+  if (!discountInput) return;
+
+  const eligibleForCourseDiscount = isCourseDiscountEligible(selected);
+  const externalDiscount = getExternalDiscount();
+  const shouldDisableCourseDiscount = !eligibleForCourseDiscount || Boolean(externalDiscount);
+  const discountLabel = discountInput.closest("label");
+
+  if (shouldDisableCourseDiscount) {
+    discountInput.checked = false;
+  }
+
+  discountInput.disabled = shouldDisableCourseDiscount;
+  discountInput.title = shouldDisableCourseDiscount
+    ? "Скидка 10% доступна только для комплекса, курса или услуги «Все тело» и не суммируется с другими скидками"
+    : "";
+  discountLabel?.classList.toggle("is-disabled", shouldDisableCourseDiscount);
+
+  if (extraDiscount) {
+    extraDiscount.disabled = discountInput.checked;
+  }
+
+  if (promoCode) {
+    promoCode.disabled = discountInput.checked;
+  }
+}
+
+function buildCalculation() {
   const selected = serviceInputs
     .filter((input) => input.checked)
     .map((input) => ({
@@ -20,41 +94,97 @@ function updateCalculator() {
     }));
 
   const rawTotal = selected.reduce((sum, item) => sum + item.price, 0);
-  const hasDiscount = discountInput.checked && rawTotal > 0;
-  const total = hasDiscount ? Math.round(rawTotal * 0.9) : rawTotal;
-  const titles = selected.map((item) => item.title);
+  const discounts = [];
 
-  totalPrice.textContent = formatRub.format(total);
+  syncDiscountControls(selected);
+
+  if (discountInput?.checked && rawTotal > 0 && isCourseDiscountEligible(selected)) {
+    discounts.push({ percent: 10, label: "скидка на курс/комплекс - 10%" });
+  } else {
+    const externalDiscount = getExternalDiscount();
+    if (externalDiscount && rawTotal > 0) {
+      discounts.push(externalDiscount);
+    }
+  }
+
+  const totalDiscountPercent = discounts[0]?.percent || 0;
+  const discountAmount = Math.round((rawTotal * totalDiscountPercent) / 100);
+  const total = rawTotal - discountAmount;
+
+  return {
+    selected,
+    rawTotal,
+    discountAmount,
+    total,
+    discountLabels: discounts.map((item) => item.label),
+  };
+}
+
+function createRequestText(calculation = lastCalculation) {
+  const titles = calculation.selected.map((item) => item.title);
+  const discountText = calculation.discountLabels.length
+    ? ` Скидка: ${calculation.discountLabels.join(", ")}. Сумма скидки: ${formatRub.format(calculation.discountAmount)}.`
+    : "";
+
+  return titles.length
+    ? `Здравствуйте! Хочу записаться: ${titles.join(", ")}. Стоимость до скидки: ${formatRub.format(calculation.rawTotal)}.${discountText} Итого: ${formatRub.format(calculation.total)}.`
+    : "Здравствуйте! Хочу записаться на консультацию.";
+}
+
+function updateCalculator() {
+  if (!serviceInputs.length || !totalPrice || !selectedServices) return;
+
+  const calculation = buildCalculation();
+  lastCalculation = calculation;
+  const titles = calculation.selected.map((item) => item.title);
+
+  totalPrice.textContent = formatRub.format(calculation.total);
   selectedServices.textContent = titles.length
-    ? `${titles.join(", ")}${hasDiscount ? ". Скидка 10% применена." : ""}`
+    ? `${titles.join(", ")}${calculation.discountLabels.length ? `. Применено: ${calculation.discountLabels.join(", ")}.` : ""}`
     : "Выберите услуги, чтобы увидеть расчет";
 
-  const text = titles.length
-    ? `Здравствуйте! Хочу записаться: ${titles.join(", ")}. Ориентир по стоимости: ${formatRub.format(total)}.`
-    : "Здравствуйте! Хочу записаться на консультацию.";
+  if (rawTotalNode) rawTotalNode.textContent = formatRub.format(calculation.rawTotal);
+  if (discountAmountNode) discountAmountNode.textContent = formatRub.format(calculation.discountAmount);
 
-  bookingLink.href = "#booking";
-  bookingLink.dataset.message = text;
+  const requestText = createRequestText(calculation);
+  if (bookingLink) bookingLink.dataset.message = requestText;
+  if (messageField && document.body.classList.contains("calculator-page")) {
+    messageField.value = requestText;
+  }
+  if (requestSummary) {
+    requestSummary.textContent = titles.length
+      ? requestText
+      : "Расчет появится после выбора услуг.";
+  }
 }
 
 serviceInputs.forEach((input) => input.addEventListener("change", updateCalculator));
-discountInput.addEventListener("change", updateCalculator);
+discountInput?.addEventListener("change", updateCalculator);
+extraDiscount?.addEventListener("change", updateCalculator);
+promoCode?.addEventListener("input", updateCalculator);
 
-bookingLink.addEventListener("click", () => {
+bookingLink?.addEventListener("click", () => {
   const text = bookingLink.dataset.message;
-  if (text) {
+  if (text && messageField) {
     messageField.value = text;
   }
 });
 
-document.querySelector(".booking-form").addEventListener("submit", (event) => {
+const bookingForm = document.querySelector(".booking-form");
+bookingForm?.addEventListener("submit", (event) => {
   event.preventDefault();
-  const name = document.querySelector("#clientName").value.trim() || "Имя не указано";
-  const phone = document.querySelector("#clientPhone").value.trim() || "Телефон не указан";
-  const message = messageField.value.trim() || "Услуга не указана";
 
-  document.querySelector("#bookingResult").textContent =
-    `Заявка подготовлена:\n${name}\n${phone}\n${message}\n\nПодключите WhatsApp, Telegram, почту или CRM, чтобы отправлять ее автоматически.`;
+  const name = document.querySelector("#clientName")?.value.trim() || "Имя не указано";
+  const phone = document.querySelector("#clientPhone")?.value.trim() || "Телефон не указан";
+  const date = document.querySelector("#clientDate")?.value.trim();
+  const message = messageField?.value.trim() || createRequestText();
+  const dateLine = date ? `\nУдобное время: ${date}` : "";
+  const output = document.querySelector("#bookingResult");
+
+  if (output) {
+    output.textContent =
+      `Заявка подготовлена:\n${name}\n${phone}${dateLine}\n${message}\n\nПодключите WhatsApp, Telegram, почту или CRM, чтобы отправлять ее автоматически.`;
+  }
 });
 
 const slider = document.querySelector("[data-slider]");

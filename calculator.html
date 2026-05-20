@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Калькулятор стоимости | Laser Body Studio</title>
+    <meta name="description" content="Интерактивный расчет стоимости лазерной эпиляции и LPG-массажа с учетом скидок и подготовкой заявки.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body class="calculator-page">
+    <header class="site-header">
+      <a class="brand" href="index.html" aria-label="Laser Body Studio">
+        <span class="brand-mark"></span>
+        <span>Laser Body Studio</span>
+      </a>
+      <nav class="nav" aria-label="Навигация калькулятора">
+        <a href="index.html#services">Услуги</a>
+        <a href="index.html#prices">Цены</a>
+        <a href="#request">Заявка</a>
+      </nav>
+      <a class="header-action" href="index.html">На сайт</a>
+    </header>
+
+    <main>
+      <section class="section calculator-section advanced-calculator" id="calculator">
+        <div class="calculator-card">
+          <div class="calculator-intro">
+            <p class="eyebrow">Выбор услуг</p>
+            <h2>Что включить в визит</h2>
+            <p>Можно выбрать несколько зон и добавить скидку за комплексный визит. Итог пересчитывается сразу после каждого выбора.</p>
+          </div>
+
+          <form class="calculator" aria-label="Калькулятор услуг">
+            <fieldset>
+              <legend>Лазерная эпиляция</legend>
+              <label><input type="checkbox" data-service="Верхняя губа" data-price="300"> Верхняя губа <span>300 ₽</span></label>
+              <label><input type="checkbox" data-service="Подмышки" data-price="500"> Подмышки <span>500 ₽</span></label>
+              <label><input type="checkbox" data-service="Бикини классика" data-price="700"> Бикини классика <span>700 ₽</span></label>
+              <label><input type="checkbox" data-service="Глубокое бикини" data-price="1000"> Глубокое бикини <span>1 000 ₽</span></label>
+              <label><input type="checkbox" data-service="Ноги полностью" data-price="1500"> Ноги полностью <span>1 500 ₽</span></label>
+              <label><input type="checkbox" data-service="Все тело" data-price="3500"> Все тело <span>3 500 ₽</span></label>
+            </fieldset>
+
+            <fieldset>
+              <legend>LPG-массаж</legend>
+              <label><input type="checkbox" data-service="LPG-массаж: одна зона" data-price="900"> Одна зона <span>900 ₽</span></label>
+              <label><input type="checkbox" data-service="Бедра + ягодицы" data-price="1300"> Бедра + ягодицы <span>1 300 ₽</span></label>
+              <label><input type="checkbox" data-service="Живот + талия" data-price="900"> Живот + талия <span>900 ₽</span></label>
+              <label><input type="checkbox" data-service="Комплекс 60 минут" data-price="1500"> Комплекс 60 минут <span>1 500 ₽</span></label>
+              <label><input type="checkbox" data-service="Курс 5 сеансов" data-price="6500"> Курс 5 сеансов <span>6 500 ₽</span></label>
+              <label><input type="checkbox" data-service="Курс 10 сеансов" data-price="12000"> Курс 10 сеансов <span>12 000 ₽</span></label>
+            </fieldset>
+
+            <fieldset class="discount-panel">
+              <legend>Скидка</legend>
+              <label class="discount-toggle"><input id="courseDiscount" type="checkbox"> Скидка 10% на курс или комплекс</label>
+              <label class="field-label">Дополнительная скидка
+                <select id="extraDiscount">
+                  <option value="0">Без дополнительной скидки</option>
+                  <option value="5">Первый визит - 5%</option>
+                  <option value="7">Две категории услуг - 7%</option>
+                  <option value="15">Акционный комплекс - 15%</option>
+                </select>
+              </label>
+              <label class="field-label">Промокод
+                <input id="promoCode" type="text" placeholder="Например: LASER10">
+              </label>
+            </fieldset>
+          </form>
+        </div>
+
+        <aside class="total-card calculator-total" aria-live="polite">
+          <p>Итого</p>
+          <strong id="totalPrice">0 ₽</strong>
+          <span id="selectedServices">Выберите услуги, чтобы увидеть расчет</span>
+          <div class="total-breakdown">
+            <div><span>До скидки</span><b id="rawTotal">0 ₽</b></div>
+            <div><span>Скидка</span><b id="discountAmount">0 ₽</b></div>
+          </div>
+          <a id="calcBookingLink" class="button primary" href="#request">Создать заявку</a>
+        </aside>
+      </section>
+
+      <section id="request" class="section booking calculator-request">
+        <div class="booking-copy">
+          <p class="eyebrow">Заявка</p>
+          <h2>Отправьте расчет мастеру</h2>
+          <p>Форма подготовит текст заявки с выбранными услугами, скидкой и итоговой суммой. После подключения WhatsApp, Telegram, почты или CRM ее можно отправлять автоматически.</p>
+          <div class="social-links">
+            <a class="social-button whatsapp" href="#" aria-label="Добавить ссылку на WhatsApp">
+              <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+                <path d="M16 4.2A11.6 11.6 0 0 0 6.1 22l-1.2 5.1 5.2-1.3A11.6 11.6 0 1 0 16 4.2Zm0 2.2a9.4 9.4 0 0 1 8 14.4 9.4 9.4 0 0 1-13.2 2.8l-.4-.2-2.5.6.6-2.4-.3-.4A9.4 9.4 0 0 1 16 6.4Zm-4.1 4.5c-.3 0-.7.1-.9.5-.3.4-1.1 1.1-1.1 2.7 0 1.5 1.1 3 1.3 3.2.2.2 2.2 3.5 5.4 4.8 2.7 1.1 3.2.9 3.8.8.6-.1 1.9-.8 2.2-1.5.3-.8.3-1.4.2-1.5-.1-.2-.3-.3-.7-.5l-2.2-1c-.3-.1-.6-.2-.8.2l-.9 1.1c-.2.3-.4.3-.7.1a7.7 7.7 0 0 1-2.3-1.4 8.6 8.6 0 0 1-1.6-2c-.2-.3 0-.5.1-.7l.5-.6.3-.6c.1-.2 0-.4 0-.6l-1-2.3c-.3-.5-.5-.7-.8-.7h-.8Z"/>
+              </svg>
+            </a>
+            <a class="social-button telegram" href="#" aria-label="Добавить ссылку на Telegram">
+              <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+                <path d="M27.8 6.4 23.9 25c-.3 1.3-1 1.6-2.1 1l-5.9-4.4-2.9 2.8c-.3.3-.6.6-1.2.6l.4-6.1L23.4 8.8c.5-.4-.1-.7-.7-.3L8.9 17.2 3 15.3c-1.3-.4-1.3-1.3.3-1.9L26.1 4.6c1.1-.4 2 .3 1.7 1.8Z"/>
+              </svg>
+            </a>
+          </div>
+          <div class="request-summary" id="requestSummary">Расчет появится после выбора услуг.</div>
+        </div>
+        <form class="booking-form">
+          <label>Имя<input id="clientName" type="text" placeholder="Как к вам обращаться"></label>
+          <label>Телефон<input id="clientPhone" type="tel" placeholder="+7 ..."></label>
+          <label>Удобный день<input id="clientDate" type="text" placeholder="Например: пятница после 18:00"></label>
+          <label>Комментарий<textarea id="clientMessage" rows="5" placeholder="Здесь появится расчет из калькулятора"></textarea></label>
+          <button class="button primary" type="submit">Подготовить заявку</button>
+          <output id="bookingResult"></output>
+        </form>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>Laser Body Studio · Яблоновский</p>
+      <a href="index.html">Вернуться на сайт</a>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
