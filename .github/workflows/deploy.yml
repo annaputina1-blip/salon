@@ -1,0 +1,60 @@
+name: Deploy site
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy over SSH
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          APP_NAME: ${{ secrets.APP_NAME }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SSH_HOST}" ] || [ -z "${SSH_USER}" ] || [ -z "${SSH_KEY}" ] || [ -z "${DEPLOY_PATH}" ]; then
+            echo "Deploy skipped: add SSH_HOST, SSH_USER, SSH_KEY and DEPLOY_PATH repository secrets."
+            exit 0
+          fi
+
+          SSH_PORT="${SSH_PORT:-22}"
+          APP_NAME="${APP_NAME:-laser-body-studio}"
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "${SSH_KEY}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${SSH_PORT}" "${SSH_HOST}" >> ~/.ssh/known_hosts
+
+          rsync -az --delete \
+            --exclude ".git/" \
+            --exclude ".github/" \
+            --exclude ".env" \
+            --exclude "data/requests.json" \
+            --exclude "edge-profile/" \
+            -e "ssh -i ~/.ssh/deploy_key -p ${SSH_PORT}" \
+            ./ "${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/"
+
+          ssh -i ~/.ssh/deploy_key -p "${SSH_PORT}" "${SSH_USER}@${SSH_HOST}" \
+            "cd '${DEPLOY_PATH}' && \
+             mkdir -p data && \
+             [ -f data/requests.json ] || printf '[]\n' > data/requests.json && \
+             npm install --omit=dev && \
+             if command -v pm2 >/dev/null 2>&1; then \
+               pm2 restart '${APP_NAME}' || pm2 start server.js --name '${APP_NAME}'; \
+               pm2 save; \
+             else \
+               pkill -f 'node server.js' || true; \
+               nohup npm start > app.log 2>&1 & \
+             fi"

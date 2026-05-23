@@ -30,3 +30,4 @@ tmp/
 
 # Local browser/session artifacts
 edge-profile/
+github_mirror_*/

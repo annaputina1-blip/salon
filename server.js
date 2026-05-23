@@ -30,6 +30,7 @@ const types = {
   ".jpeg": "image/jpeg",
   ".jpg": "image/jpeg",
   ".png": "image/png",
+  ".mp4": "video/mp4",
   ".pdf": "application/pdf",
 };
 
