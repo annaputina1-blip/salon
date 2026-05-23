@@ -1,4 +1,4 @@
-const formatRub = new Intl.NumberFormat("ru-RU", {
+﻿const formatRub = new Intl.NumberFormat("ru-RU", {
   style: "currency",
   currency: "RUB",
   maximumFractionDigits: 0,
@@ -171,20 +171,76 @@ bookingLink?.addEventListener("click", () => {
 });
 
 const bookingForm = document.querySelector(".booking-form");
+const apiBase = window.location.origin.startsWith("http") ? window.location.origin : "http://127.0.0.1:4174";
+const consentCheckbox = document.querySelector("#privacyConsent");
+const policyHelpBtn = document.querySelector("#policyHelpBtn");
+const policyModal = document.querySelector("#policyModal");
+const policyModalClose = document.querySelector("#policyModalClose");
+const policyModalBackdrop = document.querySelector("#policyModalBackdrop");
+
+function openPolicyModal() {
+  policyModal?.classList.remove("hidden");
+}
+
+function closePolicyModal() {
+  policyModal?.classList.add("hidden");
+}
+
+policyHelpBtn?.addEventListener("mouseenter", openPolicyModal);
+policyHelpBtn?.addEventListener("focus", openPolicyModal);
+policyHelpBtn?.addEventListener("click", openPolicyModal);
+policyModalClose?.addEventListener("click", closePolicyModal);
+policyModalBackdrop?.addEventListener("click", closePolicyModal);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closePolicyModal();
+  }
+});
 bookingForm?.addEventListener("submit", (event) => {
   event.preventDefault();
 
+  if (consentCheckbox && !consentCheckbox.checked) {
+    alert("Пожалуйста, подтвердите согласие на обработку персональных данных, чтобы отправить заявку.");
+    consentCheckbox.focus();
+    return;
+  }
+
   const name = document.querySelector("#clientName")?.value.trim() || "Имя не указано";
   const phone = document.querySelector("#clientPhone")?.value.trim() || "Телефон не указан";
-  const date = document.querySelector("#clientDate")?.value.trim();
+  const date = document.querySelector("#clientDate")?.value?.trim() || "";
   const message = messageField?.value.trim() || createRequestText();
   const dateLine = date ? `\nУдобное время: ${date}` : "";
   const output = document.querySelector("#bookingResult");
+  const source = document.body.classList.contains("calculator-page") ? "calculator" : "site";
 
-  if (output) {
-    output.textContent =
-      `Заявка подготовлена:\n${name}\n${phone}${dateLine}\n${message}\n\nПодключите WhatsApp, Telegram, почту или CRM, чтобы отправлять ее автоматически.`;
-  }
+  fetch(`${apiBase}/api/requests`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name,
+      phone,
+      date: date || "",
+      message,
+      source,
+    }),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => null);
+        throw new Error(errorPayload?.message || "request_failed");
+      }
+      if (output) {
+        output.textContent =
+          `Заявка отправлена:\n${name}\n${phone}${dateLine}\n${message}\n\nСпасибо! Мы свяжемся с вами в ближайшее время.`;
+      }
+      bookingForm.reset();
+      updateCalculator();
+    })
+    .catch((error) => {
+      if (output) {
+        output.textContent = `Не удалось отправить заявку. ${error?.message || "Попробуйте позже."}`;
+      }
+    });
 });
 
 const slider = document.querySelector("[data-slider]");
@@ -239,3 +295,4 @@ if (slider) {
 }
 
 updateCalculator();
+

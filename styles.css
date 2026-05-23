@@ -904,6 +904,89 @@ input[type="checkbox"]:disabled,
   white-space: pre-wrap;
 }
 
+.policy-info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.policy-help-button {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--ink);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.consent-checkbox {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.consent-checkbox input[type="checkbox"] {
+  margin-top: 2px;
+}
+
+.policy-modal.hidden {
+  display: none;
+}
+
+.policy-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+}
+
+.policy-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(23, 23, 19, 0.55);
+}
+
+.policy-modal__content {
+  position: relative;
+  width: min(620px, calc(100% - 24px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 1px solid var(--ink);
+  border-radius: 18px;
+  background: var(--white);
+  padding: 20px;
+  color: var(--ink);
+}
+
+.policy-modal__content h3 {
+  margin-bottom: 12px;
+}
+
+.policy-modal__content p {
+  margin: 0 0 10px;
+}
+
+.policy-modal__note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.policy-modal__close {
+  margin-top: 8px;
+}
+
 .footer {
   justify-content: space-between;
   gap: 18px;

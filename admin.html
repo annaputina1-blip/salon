@@ -1,0 +1,63 @@
+﻿<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Админка заявок</title>
+    <style>
+      :root { color-scheme: light; }
+      body { font-family: Arial, sans-serif; margin: 0; background: #f3f5f9; color: #111827; }
+      .wrap { max-width: 980px; margin: 0 auto; padding: 24px; }
+      .card { background: #fff; border-radius: 14px; padding: 18px; box-shadow: 0 8px 24px rgba(0,0,0,.08); margin-bottom: 16px; }
+      h1 { margin-top: 0; }
+      .row { display: grid; gap: 8px; margin-bottom: 10px; }
+      label { font-size: 14px; color: #374151; }
+      input { height: 38px; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; }
+      button { border: 0; border-radius: 8px; padding: 10px 14px; cursor: pointer; background: #0f766e; color: #fff; }
+      button.secondary { background: #475569; }
+      .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+      .muted { color: #6b7280; font-size: 14px; }
+      .hidden { display: none; }
+      .request { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+      .request h3 { margin: 0 0 8px; font-size: 16px; }
+      .request p { margin: 4px 0; }
+      .message { white-space: pre-wrap; background: #f8fafc; padding: 8px; border-radius: 8px; }
+      .error { color: #b91c1c; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Админка заявок</h1>
+
+      <section id="loginSection" class="card">
+        <h2>Вход</h2>
+        <p class="muted">Логин и пароль берутся из файла .env</p>
+        <form id="loginForm">
+          <div class="row">
+            <label for="login">Логин</label>
+            <input id="login" type="text" required>
+          </div>
+          <div class="row">
+            <label for="password">Пароль</label>
+            <input id="password" type="password" required>
+          </div>
+          <button type="submit">Войти</button>
+          <p id="loginError" class="error"></p>
+        </form>
+      </section>
+
+      <section id="adminSection" class="hidden">
+        <div class="card">
+          <div class="toolbar">
+            <button id="refreshBtn" type="button">Обновить заявки</button>
+            <button id="logoutBtn" type="button" class="secondary">Выйти</button>
+          </div>
+          <p class="muted">Источник: site - заявка с главной, calculator - заявка с калькулятора.</p>
+        </div>
+        <div id="requestsList" class="card"></div>
+      </section>
+    </div>
+
+    <script src="admin.js"></script>
+  </body>
+</html>
