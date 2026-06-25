@@ -1,0 +1,88 @@
+const services = [
+  {
+    id: "laser_upper_lip",
+    category: "Лазерная эпиляция",
+    title: "Верхняя губа",
+    price: 300,
+    durationMinutes: 20,
+  },
+  {
+    id: "laser_armpits",
+    category: "Лазерная эпиляция",
+    title: "Подмышки",
+    price: 500,
+    durationMinutes: 25,
+  },
+  {
+    id: "laser_bikini_classic",
+    category: "Лазерная эпиляция",
+    title: "Бикини классика",
+    price: 700,
+    durationMinutes: 35,
+  },
+  {
+    id: "laser_bikini_deep",
+    category: "Лазерная эпиляция",
+    title: "Глубокое бикини",
+    price: 1000,
+    durationMinutes: 45,
+  },
+  {
+    id: "laser_legs_full",
+    category: "Лазерная эпиляция",
+    title: "Ноги полностью",
+    price: 1500,
+    durationMinutes: 60,
+  },
+  {
+    id: "laser_full_body",
+    category: "Лазерная эпиляция",
+    title: "Все тело",
+    price: 3500,
+    durationMinutes: 120,
+  },
+  {
+    id: "lpg_one_zone",
+    category: "LPG-массаж",
+    title: "LPG-массаж: одна зона",
+    price: 900,
+    durationMinutes: 30,
+  },
+  {
+    id: "lpg_hips",
+    category: "LPG-массаж",
+    title: "Бедра + ягодицы",
+    price: 1300,
+    durationMinutes: 45,
+  },
+  {
+    id: "lpg_belly",
+    category: "LPG-массаж",
+    title: "Живот + талия",
+    price: 900,
+    durationMinutes: 30,
+  },
+  {
+    id: "lpg_60",
+    category: "LPG-массаж",
+    title: "Комплекс 60 минут",
+    price: 1500,
+    durationMinutes: 60,
+  },
+  {
+    id: "lpg_course_5",
+    category: "LPG-массаж",
+    title: "Курс 5 сеансов",
+    price: 6500,
+    durationMinutes: 60,
+  },
+  {
+    id: "lpg_course_10",
+    category: "LPG-массаж",
+    title: "Курс 10 сеансов",
+    price: 12000,
+    durationMinutes: 60,
+  },
+];
+
+module.exports = { services };

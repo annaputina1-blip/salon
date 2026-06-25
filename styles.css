@@ -21,9 +21,12 @@
 
 html {
   scroll-behavior: smooth;
+  overflow-x: clip;
 }
 
 body {
+  width: 100%;
+  overflow-x: clip;
   margin: 0;
   color: var(--ink);
   background: var(--paper);
@@ -65,6 +68,7 @@ img {
 
 .brand {
   gap: 10px;
+  min-height: 44px;
   font-weight: 850;
   text-decoration: none;
 }
@@ -99,6 +103,10 @@ img {
 }
 
 .header-action {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 10px 16px;
   border: 1px solid var(--ink);
   border-radius: 999px;
@@ -210,6 +218,7 @@ h3 {
 
 .button {
   min-height: 48px;
+  max-width: 100%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -219,6 +228,8 @@ h3 {
   box-shadow: 5px 5px 0 var(--ink);
   font-weight: 850;
   text-decoration: none;
+  text-align: center;
+  overflow-wrap: anywhere;
   transition: transform 160ms ease, box-shadow 160ms ease;
   cursor: pointer;
 }
@@ -715,16 +726,27 @@ input[type="checkbox"]:disabled,
 }
 
 .slider-dot {
-  width: 10px;
-  height: 10px;
+  width: 44px;
+  height: 44px;
   padding: 0;
-  border: 1px solid var(--ink);
+  border: 0;
   border-radius: 50%;
-  background: var(--white);
+  background: transparent;
   cursor: pointer;
 }
 
-.slider-dot.active {
+.slider-dot::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  display: block;
+  margin: auto;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  background: var(--white);
+}
+
+.slider-dot.active::before {
   background: var(--warm-gradient);
 }
 
@@ -857,9 +879,29 @@ input[type="checkbox"]:disabled,
   resize: vertical;
 }
 
+.contact-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.contact-actions .button {
+  border-radius: 18px;
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.contact-actions .telegram-contact {
+  background: #e7f5ff;
+}
+
+.contact-actions .whatsapp-contact {
+  background: #e9f9ed;
+}
+
 #bookingResult {
   color: var(--muted);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .policy-info-row {
@@ -958,6 +1000,12 @@ input[type="checkbox"]:disabled,
   margin: 0;
 }
 
+.footer a {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
 @media (max-width: 980px) {
   .nav {
     display: none;
@@ -1001,21 +1049,32 @@ input[type="checkbox"]:disabled,
 
 @media (max-width: 720px) {
   .site-header {
-    padding: 12px 16px;
+    gap: 10px;
+    padding: 10px 14px;
   }
 
   .brand span:last-child {
-    max-width: 110px;
+    max-width: 112px;
     line-height: 1;
   }
 
+  .brand-mark {
+    width: 24px;
+    height: 24px;
+    border-width: 2px;
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+
   .header-action {
-    padding: 9px 12px;
+    flex: 0 0 auto;
+    padding: 9px 10px;
     font-size: 14px;
+    white-space: nowrap;
   }
 
   .hero {
-    padding-top: 42px;
+    min-height: min(680px, calc(100svh - 58px));
+    padding: 38px 16px 34px;
   }
 
   .hero::after {
@@ -1023,11 +1082,11 @@ input[type="checkbox"]:disabled,
   }
 
   h1 {
-    font-size: 42px;
+    font-size: clamp(38px, 12vw, 46px);
   }
 
   h2 {
-    font-size: 32px;
+    font-size: clamp(31px, 9vw, 38px);
   }
 
   .hero-lead {
@@ -1036,6 +1095,8 @@ input[type="checkbox"]:disabled,
 
   .button {
     width: 100%;
+    min-height: 50px;
+    padding-inline: 14px;
     box-shadow: 3px 3px 0 var(--ink);
   }
 
@@ -1053,6 +1114,17 @@ input[type="checkbox"]:disabled,
   .service-card {
     min-height: 0;
     box-shadow: 5px 5px 0 var(--ink);
+  }
+
+  .service-card-top {
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .tag {
+    max-width: 145px;
+    text-align: center;
+    overflow-wrap: anywhere;
   }
 
   .review-card {
@@ -1073,8 +1145,22 @@ input[type="checkbox"]:disabled,
     padding-right: 16px;
   }
 
+  .calculator-card,
+  .booking-copy,
+  .booking-form,
+  .total-card,
+  .price-list {
+    border-radius: 20px;
+  }
+
+  .booking-form {
+    box-shadow: 5px 5px 0 rgba(255, 189, 56, 0.92), 8px 8px 0 rgba(255, 143, 28, 0.28);
+  }
+
   .calculator label {
     align-items: flex-start;
+    gap: 8px;
+    overflow-wrap: anywhere;
   }
 
   .calculator label span {
@@ -1086,8 +1172,57 @@ input[type="checkbox"]:disabled,
     align-items: flex-start;
   }
 
+  .price-row {
+    gap: 12px;
+  }
+
+  .price-row strong {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .contact-actions {
+    grid-template-columns: 1fr;
+  }
+
   .footer {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 390px) {
+  .site-header {
+    padding-inline: 10px;
+  }
+
+  .brand {
+    gap: 8px;
+    font-size: 14px;
+  }
+
+  .brand span:last-child {
+    max-width: 94px;
+  }
+
+  .header-action {
+    padding-inline: 9px;
+    font-size: 13px;
+  }
+
+  .hero,
+  .calculator-section,
+  .section {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .trust-strip {
+    margin-inline: 12px;
+  }
+
+  .social-links a {
+    width: 52px;
+    height: 52px;
   }
 }

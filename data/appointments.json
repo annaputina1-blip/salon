@@ -1,0 +1,38 @@
+[
+  {
+    "id": "e1e382d2-6d91-4dee-8396-0ed575a3fbcd",
+    "status": "active",
+    "createdAt": "2026-06-20T13:25:11.165Z",
+    "source": "telegram_bot",
+    "telegramChatId": "8377328591",
+    "clientName": "Вика",
+    "clientPhone": "+7 993 306 03 09",
+    "serviceId": "laser_armpits",
+    "serviceTitle": "Подмышки",
+    "serviceCategory": "Лазерная эпиляция",
+    "price": 500,
+    "durationMinutes": 25,
+    "date": "2026-06-24",
+    "time": "14:00",
+    "startAt": "2026-06-24T14:00:00+03:00",
+    "endAt": "2026-06-24T11:25:00.000Z"
+  },
+  {
+    "id": "1b7f5d15-2c6a-4ec8-8838-4a0d03d3d57b",
+    "status": "active",
+    "createdAt": "2026-06-20T13:29:16.876Z",
+    "source": "telegram_bot",
+    "telegramChatId": "8377328591",
+    "clientName": "Вика",
+    "clientPhone": "+7 993 306 03 09",
+    "serviceId": "lpg_belly",
+    "serviceTitle": "Живот + талия",
+    "serviceCategory": "LPG-массаж",
+    "price": 900,
+    "durationMinutes": 30,
+    "date": "2026-06-24",
+    "time": "12:30",
+    "startAt": "2026-06-24T12:30:00+03:00",
+    "endAt": "2026-06-24T10:00:00.000Z"
+  }
+]

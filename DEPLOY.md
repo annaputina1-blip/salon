@@ -43,3 +43,8 @@ Start command:
 ```bash
 npm start
 ```
+
+## HTTPS
+
+For `massag-yablonovskiy.ru`, use the Nginx config in
+`deploy/nginx/massag-yablonovskiy.ru.conf` and follow `SSL.md`.

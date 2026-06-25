@@ -156,6 +156,7 @@ function updateCalculator() {
       ? requestText
       : "Расчет появится после выбора услуг.";
   }
+  updateContactLinks();
 }
 
 serviceInputs.forEach((input) => input.addEventListener("change", updateCalculator));
@@ -172,6 +173,8 @@ bookingLink?.addEventListener("click", () => {
 
 const bookingForm = document.querySelector(".booking-form");
 const apiBase = window.location.origin.startsWith("http") ? window.location.origin : "http://127.0.0.1:4174";
+const whatsappContacts = Array.from(document.querySelectorAll("[data-whatsapp-contact], .social-button.whatsapp"));
+const telegramContacts = Array.from(document.querySelectorAll("[data-telegram-contact], .social-button.telegram"));
 const consentCheckbox = document.querySelector("#privacyConsent");
 const policyHelpBtn = document.querySelector("#policyHelpBtn");
 const policyModal = document.querySelector("#policyModal");
@@ -184,6 +187,40 @@ function openPolicyModal() {
 
 function closePolicyModal() {
   policyModal?.classList.add("hidden");
+}
+
+function getCurrentRequestPayload() {
+  const name = document.querySelector("#clientName")?.value.trim() || "";
+  const phone = document.querySelector("#clientPhone")?.value.trim() || "";
+  const date = document.querySelector("#clientDate")?.value?.trim() || "";
+  const message = messageField?.value.trim() || createRequestText();
+  const lines = ["Здравствуйте! Хочу записаться."];
+
+  if (name) lines.push(`Имя: ${name}`);
+  if (phone) lines.push(`Телефон: ${phone}`);
+  if (date) lines.push(`Удобное время: ${date}`);
+  if (message) lines.push(`Комментарий: ${message}`);
+
+  return {
+    name: name || "Имя не указано",
+    phone: phone || "Телефон не указан",
+    date,
+    message,
+    text: lines.join("\n"),
+  };
+}
+
+function updateContactLinks() {
+  const payload = getCurrentRequestPayload();
+  const encodedText = encodeURIComponent(payload.text);
+
+  whatsappContacts.forEach((link) => {
+    link.href = `https://wa.me/79933060309?text=${encodedText}`;
+  });
+
+  telegramContacts.forEach((link) => {
+    link.href = "https://t.me/MezAnuta";
+  });
 }
 
 policyHelpBtn?.addEventListener("mouseenter", openPolicyModal);
@@ -205,10 +242,8 @@ bookingForm?.addEventListener("submit", (event) => {
     return;
   }
 
-  const name = document.querySelector("#clientName")?.value.trim() || "Имя не указано";
-  const phone = document.querySelector("#clientPhone")?.value.trim() || "Телефон не указан";
-  const date = document.querySelector("#clientDate")?.value?.trim() || "";
-  const message = messageField?.value.trim() || createRequestText();
+  const payload = getCurrentRequestPayload();
+  const { name, phone, date, message } = payload;
   const dateLine = date ? `\nУдобное время: ${date}` : "";
   const output = document.querySelector("#bookingResult");
   const source = document.body.classList.contains("calculator-page") ? "calculator" : "site";
@@ -235,6 +270,7 @@ bookingForm?.addEventListener("submit", (event) => {
       }
       bookingForm.reset();
       updateCalculator();
+      updateContactLinks();
     })
     .catch((error) => {
       if (output) {
@@ -242,6 +278,9 @@ bookingForm?.addEventListener("submit", (event) => {
       }
     });
 });
+
+bookingForm?.addEventListener("input", updateContactLinks);
+bookingForm?.addEventListener("change", updateContactLinks);
 
 const slider = document.querySelector("[data-slider]");
 if (slider) {
@@ -295,4 +334,5 @@ if (slider) {
 }
 
 updateCalculator();
+updateContactLinks();
 
