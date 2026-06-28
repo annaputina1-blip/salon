@@ -311,6 +311,19 @@ function initializeDatabase() {
 
     CREATE INDEX IF NOT EXISTS idx_appointments_start_at ON appointments(start_at);
     CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
+
+    CREATE TABLE IF NOT EXISTS schedule_rules (
+      id TEXT PRIMARY KEY,
+      rule_date TEXT NOT NULL,
+      type TEXT NOT NULL,
+      start_time TEXT NOT NULL DEFAULT '',
+      end_time TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      created_by TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_schedule_rules_date ON schedule_rules(rule_date);
   `);
 
   ensureColumn(db, "appointments", "cancelled_at", "TEXT NOT NULL DEFAULT ''");
@@ -625,6 +638,11 @@ async function handleTelegramUpdate(update) {
   if (!state) {
     telegramDialogState.set(chatId, { selectedServiceIds: [] });
     await sendServiceCategories(chatId);
+    return;
+  }
+
+  if (state.adminStep) {
+    await handleAdminText(chatId, text, state);
     return;
   }
 
@@ -957,6 +975,7 @@ async function sendAdminMenu(chatId) {
       [{ text: "Все будущие записи", callback_data: "admin:future" }],
       [{ text: "Статистика за неделю", callback_data: "admin:week" }],
       [{ text: "Статистика за месяц", callback_data: "admin:month" }],
+      [{ text: "Корректировать расписание", callback_data: "admin:schedule" }],
     ],
   });
 }
@@ -989,6 +1008,16 @@ async function handleAdminCallback(chatId, data) {
 
   if (data === "admin:month") {
     await sendStats(chatId, "Статистика за месяц", getDateKeyForOffset(-29), getDateKeyForOffset(0));
+    return;
+  }
+
+  if (data === "admin:schedule") {
+    await sendScheduleMenu(chatId);
+    return;
+  }
+
+  if (data.startsWith("schedule:")) {
+    await handleScheduleCallback(chatId, data);
     return;
   }
 
@@ -1177,6 +1206,153 @@ function adminBackKeyboard() {
   return { inline_keyboard: [[{ text: "Назад в админку", callback_data: "admin:menu" }]] };
 }
 
+async function sendScheduleMenu(chatId) {
+  await sendTelegramMessage(chatId, "Корректировка расписания\n\nВыберите дату:", {
+    inline_keyboard: [
+      [{ text: `Сегодня (${formatShortDateRu(getDateKeyForOffset(0))})`, callback_data: `schedule:date:${getDateKeyForOffset(0)}` }],
+      [{ text: `Завтра (${formatShortDateRu(getDateKeyForOffset(1))})`, callback_data: `schedule:date:${getDateKeyForOffset(1)}` }],
+      [{ text: "Ввести дату вручную", callback_data: "schedule:manual_date" }],
+      [{ text: "Назад в админку", callback_data: "admin:menu" }],
+    ],
+  });
+}
+
+async function handleScheduleCallback(chatId, data) {
+  if (data === "schedule:manual_date") {
+    telegramDialogState.set(chatId, { adminStep: "schedule_date" });
+    await sendTelegramMessage(chatId, "Введите дату в формате ДД.ММ.ГГГГ, например 30.06.2026.", adminBackKeyboard());
+    return;
+  }
+
+  if (data.startsWith("schedule:date:")) {
+    const date = data.slice("schedule:date:".length);
+    await sendScheduleDateMenu(chatId, date);
+    return;
+  }
+
+  if (data.startsWith("schedule:dayoff:")) {
+    const date = data.slice("schedule:dayoff:".length);
+    createScheduleRule({ date, type: "day_off", createdBy: chatId });
+    await sendScheduleDateMenu(chatId, date, "День закрыт для записи.");
+    return;
+  }
+
+  if (data.startsWith("schedule:block:")) {
+    const date = data.slice("schedule:block:".length);
+    telegramDialogState.set(chatId, { adminStep: "schedule_block", scheduleDate: date });
+    await sendTelegramMessage(chatId, `Введите интервал для закрытия ${formatDateRu(date)} в формате ЧЧ:ММ-ЧЧ:ММ, например 13:00-15:30.`);
+    return;
+  }
+
+  if (data.startsWith("schedule:hours:")) {
+    const date = data.slice("schedule:hours:".length);
+    telegramDialogState.set(chatId, { adminStep: "schedule_hours", scheduleDate: date });
+    await sendTelegramMessage(chatId, `Введите часы работы на ${formatDateRu(date)} в формате ЧЧ:ММ-ЧЧ:ММ, например 10:00-18:00.`);
+    return;
+  }
+
+  if (data.startsWith("schedule:clear:")) {
+    const date = data.slice("schedule:clear:".length);
+    database.prepare("DELETE FROM schedule_rules WHERE rule_date = ?").run(date);
+    await sendScheduleDateMenu(chatId, date, "Ограничения на эту дату очищены.");
+  }
+}
+
+async function sendScheduleDateMenu(chatId, date, notice = "") {
+  const rules = loadScheduleRules(date);
+  const lines = [
+    `Расписание: ${formatDateWithWeekdayRu(date)}`,
+    "",
+    notice,
+    rules.length ? "Текущие правила:" : "Ограничений на дату нет.",
+    ...rules.map(formatScheduleRule),
+  ].filter(Boolean);
+
+  await sendTelegramMessage(chatId, lines.join("\n"), {
+    inline_keyboard: [
+      [{ text: "Сделать выходной", callback_data: `schedule:dayoff:${date}` }],
+      [{ text: "Закрыть интервал времени", callback_data: `schedule:block:${date}` }],
+      [{ text: "Задать часы работы на день", callback_data: `schedule:hours:${date}` }],
+      [{ text: "Очистить ограничения даты", callback_data: `schedule:clear:${date}` }],
+      [{ text: "Назад", callback_data: "admin:schedule" }],
+    ],
+  });
+}
+
+async function handleAdminText(chatId, text, state) {
+  if (!isTelegramAdmin(chatId)) {
+    telegramDialogState.delete(chatId);
+    await sendTelegramMessage(chatId, "Эта команда вам не доступна");
+    return;
+  }
+
+  if (state.adminStep === "schedule_date") {
+    const date = parseRuDate(text);
+    if (!date) {
+      await sendTelegramMessage(chatId, "Не поняла дату. Введите в формате ДД.ММ.ГГГГ, например 30.06.2026.");
+      return;
+    }
+
+    telegramDialogState.delete(chatId);
+    await sendScheduleDateMenu(chatId, date);
+    return;
+  }
+
+  if (state.adminStep === "schedule_block" || state.adminStep === "schedule_hours") {
+    const interval = parseTimeInterval(text);
+    if (!interval) {
+      await sendTelegramMessage(chatId, "Не поняла время. Введите в формате ЧЧ:ММ-ЧЧ:ММ, например 13:00-15:30.");
+      return;
+    }
+
+    const type = state.adminStep === "schedule_block" ? "blocked_time" : "custom_hours";
+    createScheduleRule({
+      date: state.scheduleDate,
+      type,
+      startTime: interval.start,
+      endTime: interval.end,
+      createdBy: chatId,
+    });
+    telegramDialogState.delete(chatId);
+    await sendScheduleDateMenu(
+      chatId,
+      state.scheduleDate,
+      type === "blocked_time" ? "Интервал закрыт для записи." : "Часы работы на день обновлены."
+    );
+  }
+}
+
+function createScheduleRule({ date, type, startTime = "", endTime = "", note = "", createdBy = "" }) {
+  if (type === "day_off") {
+    database.prepare("DELETE FROM schedule_rules WHERE rule_date = ?").run(date);
+  }
+  if (type === "custom_hours") {
+    database.prepare("DELETE FROM schedule_rules WHERE rule_date = ? AND type = 'custom_hours'").run(date);
+  }
+
+  database
+    .prepare(
+      `
+        INSERT INTO schedule_rules (id, rule_date, type, start_time, end_time, note, created_at, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    )
+    .run(crypto.randomUUID(), date, type, startTime, endTime, note, new Date().toISOString(), String(createdBy));
+}
+
+function loadScheduleRules(date) {
+  return database
+    .prepare("SELECT * FROM schedule_rules WHERE rule_date = ? ORDER BY type, start_time")
+    .all(date);
+}
+
+function formatScheduleRule(rule) {
+  if (rule.type === "day_off") return "- выходной день";
+  if (rule.type === "blocked_time") return `- закрыто: ${rule.start_time}-${rule.end_time}`;
+  if (rule.type === "custom_hours") return `- часы работы: ${rule.start_time}-${rule.end_time}`;
+  return `- ${rule.type}: ${rule.start_time}-${rule.end_time}`;
+}
+
 async function buildAppointmentsText() {
   const data = await loadAppointments();
   const upcoming = data
@@ -1250,10 +1426,10 @@ function isDateSelectable(date) {
 
 async function getAvailableSlots(date, durationMinutes) {
   const result = [];
-  const startMinutes = parseTimeToMinutes(workdayStart);
-  const endMinutes = parseTimeToMinutes(workdayEnd);
+  const workWindow = getWorkWindowForDate(date);
+  if (!workWindow) return result;
 
-  for (let minutes = startMinutes; minutes + durationMinutes <= endMinutes; minutes += bookingSlotStepMinutes) {
+  for (let minutes = workWindow.start; minutes + durationMinutes <= workWindow.end; minutes += bookingSlotStepMinutes) {
     const time = minutesToTime(minutes);
     if (await isSlotAvailable(date, time, durationMinutes)) {
       result.push(time);
@@ -1269,9 +1445,37 @@ async function isSlotAvailable(date, time, durationMinutes) {
   const startAt = buildDateTimeIso(date, time);
   const endAt = addMinutesIso(startAt, durationMinutes);
   if (Date.parse(startAt) < Date.now() + 1000 * 60 * 60) return false;
+  if (!isInsideWorkWindow(date, time, durationMinutes)) return false;
+  if (isBlockedByScheduleRule(date, time, durationMinutes)) return false;
 
   const appointments = await loadAppointments();
   return !appointments.some((item) => appointmentsOverlap(item, startAt, endAt));
+}
+
+function getWorkWindowForDate(date) {
+  const rules = loadScheduleRules(date);
+  if (rules.some((rule) => rule.type === "day_off")) return null;
+
+  const customHours = rules.find((rule) => rule.type === "custom_hours");
+  const start = parseTimeToMinutes(customHours?.start_time || workdayStart);
+  const end = parseTimeToMinutes(customHours?.end_time || workdayEnd);
+  if (end <= start) return null;
+  return { start, end };
+}
+
+function isInsideWorkWindow(date, time, durationMinutes) {
+  const workWindow = getWorkWindowForDate(date);
+  if (!workWindow) return false;
+  const start = parseTimeToMinutes(time);
+  return start >= workWindow.start && start + durationMinutes <= workWindow.end;
+}
+
+function isBlockedByScheduleRule(date, time, durationMinutes) {
+  const start = parseTimeToMinutes(time);
+  const end = start + durationMinutes;
+  return loadScheduleRules(date)
+    .filter((rule) => rule.type === "blocked_time")
+    .some((rule) => start < parseTimeToMinutes(rule.end_time) && end > parseTimeToMinutes(rule.start_time));
 }
 
 function appointmentsOverlap(item, startAt, endAt) {
@@ -1284,6 +1488,36 @@ function parseTimeToMinutes(value) {
   const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
   if (!match) return 0;
   return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function parseTimeInterval(value) {
+  const match = String(value || "").trim().match(/^(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})$/);
+  if (!match) return null;
+  const start = normalizeTime(match[1]);
+  const end = normalizeTime(match[2]);
+  if (!start || !end) return null;
+  if (parseTimeToMinutes(end) <= parseTimeToMinutes(start)) return null;
+  return { start, end };
+}
+
+function normalizeTime(value) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return "";
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return "";
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function parseRuDate(value) {
+  const match = String(value || "").trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (!match) return "";
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return "";
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 function minutesToTime(minutes) {
