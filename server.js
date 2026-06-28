@@ -687,7 +687,7 @@ async function handleTelegramCallback(callback) {
     return;
   }
 
-  if (data.startsWith("admin:") || data.startsWith("cancel:")) {
+  if (data.startsWith("admin:") || data.startsWith("schedule:") || data.startsWith("cancel:")) {
     if (!isTelegramAdmin(chatId)) {
       await sendTelegramMessage(chatId, "Эта команда вам не доступна");
       return;
@@ -1215,7 +1215,7 @@ async function sendScheduleMenu(chatId) {
       text: formatAdminScheduleDateButton(date),
       callback_data: `schedule:date:${date}`,
     })),
-    3
+    5
   );
 
   await sendTelegramMessage(chatId, "Выберите дату:", {
@@ -1694,11 +1694,7 @@ function formatShortDateRu(date) {
 }
 
 function formatAdminScheduleDateButton(date) {
-  const value = new Date(`${date}T12:00:00${bookingTimezoneOffset}`);
-  const weekday = value.toLocaleDateString("ru-RU", { weekday: "short" }).replace(".", "");
-  const day = String(value.getDate()).padStart(2, "0");
-  const month = String(value.getMonth() + 1).padStart(2, "0");
-  return `${day}.${month} ${weekday}`;
+  return formatDateRu(date).slice(0, 5);
 }
 
 function formatDateWithWeekdayRu(date) {
