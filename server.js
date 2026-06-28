@@ -371,7 +371,7 @@ async function handleTelegramUpdate(update) {
   const chatId = message.chat.id;
   const text = cleanText(message.text || message.contact?.phone_number);
 
-  if (text === "/start" || text === "/book" || text === "Записаться") {
+  if (text === "/start" || text.startsWith("/start ") || text === "/book" || text === "Записаться") {
     telegramDialogState.set(chatId, {});
     await sendServiceCategories(chatId);
     return;
@@ -399,7 +399,8 @@ async function handleTelegramUpdate(update) {
 
   const state = telegramDialogState.get(chatId);
   if (!state) {
-    await sendTelegramMessage(chatId, "Здравствуйте! Нажмите /start, чтобы выбрать услугу и свободное время.");
+    telegramDialogState.set(chatId, { selectedServiceIds: [] });
+    await sendServiceCategories(chatId);
     return;
   }
 
@@ -444,52 +445,87 @@ async function handleTelegramCallback(callback) {
   if (data.startsWith("cat:")) {
     const categoryKey = data.slice(4);
     const category = categoryKey === "laser" ? "Лазерная эпиляция" : "LPG-массаж";
-    telegramDialogState.set(chatId, { category });
-    await sendServices(chatId, category);
+    const state = telegramDialogState.get(chatId) || {};
+    state.category = category;
+    state.selectedServiceIds = Array.isArray(state.selectedServiceIds) ? state.selectedServiceIds : [];
+    telegramDialogState.set(chatId, state);
+    await sendServices(chatId, state, callback.message?.message_id);
     return;
   }
 
   if (data.startsWith("svc:")) {
+    const state = telegramDialogState.get(chatId) || { selectedServiceIds: [] };
     const service = getServiceById(data.slice(4));
     if (!service) {
       await sendTelegramMessage(chatId, "Не нашла эту услугу. Давайте начнем заново.", restartKeyboard());
       return;
     }
 
-    telegramDialogState.set(chatId, { serviceId: service.id });
-    await sendDates(chatId, service);
+    const selected = new Set(Array.isArray(state.selectedServiceIds) ? state.selectedServiceIds : []);
+    if (selected.has(service.id)) {
+      selected.delete(service.id);
+    } else {
+      selected.add(service.id);
+    }
+
+    state.selectedServiceIds = Array.from(selected);
+    state.category = service.category;
+    telegramDialogState.set(chatId, state);
+    await sendServices(chatId, state, callback.message?.message_id);
+    return;
+  }
+
+  if (data === "choose_category") {
+    const state = telegramDialogState.get(chatId) || {};
+    state.selectedServiceIds = Array.isArray(state.selectedServiceIds) ? state.selectedServiceIds : [];
+    telegramDialogState.set(chatId, state);
+    await showServiceCategories(chatId, callback.message?.message_id);
+    return;
+  }
+
+  if (data === "services_done") {
+    const state = telegramDialogState.get(chatId) || {};
+    const selectedServices = getSelectedServices(state);
+    if (!selectedServices.length) {
+      await sendTelegramMessage(chatId, "Выберите хотя бы одну услугу.");
+      await sendServiceCategories(chatId);
+      return;
+    }
+
+    await sendDates(chatId, selectedServices);
     return;
   }
 
   if (data.startsWith("date:")) {
     const state = telegramDialogState.get(chatId) || {};
-    const service = getServiceById(state.serviceId);
+    const selectedServices = getSelectedServices(state);
     const date = data.slice(5);
-    if (!service || !isDateSelectable(date)) {
+    if (!selectedServices.length || !isDateSelectable(date)) {
       await sendTelegramMessage(chatId, "Дата уже недоступна. Выберите заново.", restartKeyboard());
       return;
     }
 
     state.date = date;
     telegramDialogState.set(chatId, state);
-    await sendSlots(chatId, service, date);
+    await sendSlots(chatId, selectedServices, date);
     return;
   }
 
   if (data.startsWith("slot:")) {
     const state = telegramDialogState.get(chatId) || {};
-    const service = getServiceById(state.serviceId);
+    const selectedServices = getSelectedServices(state);
     const [, date, rawTime] = data.split(":");
     const time = rawTime ? rawTime.replace("-", ":") : "";
-    if (!service || !date || !time) {
+    if (!selectedServices.length || !date || !time) {
       await sendTelegramMessage(chatId, "Слот уже недоступен. Выберите заново.", restartKeyboard());
       return;
     }
 
-    const available = await isSlotAvailable(date, time, service.durationMinutes);
+    const totalDuration = getServicesDuration(selectedServices);
+    const available = await isSlotAvailable(date, time, totalDuration);
     if (!available) {
       await sendTelegramMessage(chatId, "Это время только что заняли. Показываю актуальные свободные окна.");
-      await sendSlots(chatId, service, date);
+      await sendSlots(chatId, selectedServices, date);
       return;
     }
 
@@ -502,25 +538,32 @@ async function handleTelegramCallback(callback) {
 }
 
 async function finishTelegramBooking(chatId, state) {
-  const service = getServiceById(state.serviceId);
-  if (!service || !state.date || !state.time) {
+  const selectedServices = getSelectedServices(state);
+  if (!selectedServices.length || !state.date || !state.time) {
     telegramDialogState.delete(chatId);
-    await sendTelegramMessage(chatId, "Не хватает данных для записи. Нажмите /start и попробуйте еще раз.");
+    await sendTelegramMessage(chatId, "Не хватает данных для записи. Давайте выберем услуги заново.", restartKeyboard());
     return;
   }
 
+  const serviceTitles = selectedServices.map((service) => service.title);
+  const serviceCategories = [...new Set(selectedServices.map((service) => service.category))];
+  const totalPrice = getServicesPrice(selectedServices);
+  const totalDuration = getServicesDuration(selectedServices);
   const startAt = buildDateTimeIso(state.date, state.time);
-  const endAt = addMinutesIso(startAt, service.durationMinutes);
+  const endAt = addMinutesIso(startAt, totalDuration);
   const appointment = {
     source: "telegram_bot",
     telegramChatId: String(chatId),
     clientName: state.name,
     clientPhone: state.phone,
-    serviceId: service.id,
-    serviceTitle: service.title,
-    serviceCategory: service.category,
-    price: service.price,
-    durationMinutes: service.durationMinutes,
+    serviceId: selectedServices[0].id,
+    serviceIds: selectedServices.map((service) => service.id),
+    serviceTitle: serviceTitles.join(", "),
+    serviceTitles,
+    serviceCategory: serviceCategories.join(", "),
+    serviceCategories,
+    price: totalPrice,
+    durationMinutes: totalDuration,
     date: state.date,
     time: state.time,
     startAt,
@@ -538,7 +581,7 @@ async function finishTelegramBooking(chatId, state) {
     name: state.name,
     phone: state.phone,
     date: `${formatDateRu(state.date)} ${state.time}`,
-    message: `${service.category}: ${service.title}. Цена: ${formatRub(service.price)}. Длительность: ${service.durationMinutes} мин.`,
+    message: `${serviceCategories.join(", ")}: ${serviceTitles.join(", ")}. Цена: ${formatRub(totalPrice)}. Длительность: ${totalDuration} мин.`,
     source: "telegram_bot",
     submittedAt: new Date().toISOString(),
   });
@@ -547,9 +590,10 @@ async function finishTelegramBooking(chatId, state) {
   const userText = [
     "Запись создана.",
     "",
-    `Услуга: ${service.title}`,
+    `Услуги: ${serviceTitles.join(", ")}`,
     `Дата и время: ${formatDateRu(state.date)} ${state.time}`,
-    `Стоимость: ${formatRub(service.price)}`,
+    `Длительность: ${totalDuration} мин.`,
+    `Стоимость: ${formatRub(totalPrice)}`,
     `Имя: ${state.name}`,
     `Телефон: ${state.phone}`,
   ].join("\n");
@@ -566,54 +610,89 @@ async function sendServiceCategories(chatId) {
   });
 }
 
-async function sendServices(chatId, category) {
+async function showServiceCategories(chatId, messageId) {
+  const replyMarkup = {
+    inline_keyboard: [
+      [{ text: "Лазерная эпиляция", callback_data: "cat:laser" }],
+      [{ text: "LPG-массаж", callback_data: "cat:lpg" }],
+    ],
+  };
+
+  if (messageId) {
+    await editTelegramMessage(chatId, messageId, "Выберите направление:", replyMarkup);
+    return;
+  }
+
+  await sendTelegramMessage(chatId, "Выберите направление:", replyMarkup);
+}
+
+async function sendServices(chatId, state, messageId) {
+  const category = state.category;
+  const selectedIds = new Set(Array.isArray(state.selectedServiceIds) ? state.selectedServiceIds : []);
   const rows = services
     .filter((service) => service.category === category)
     .map((service) => [
       {
-        text: `${service.title} - ${formatRub(service.price)}`,
+        text: `${selectedIds.has(service.id) ? "✓ " : ""}${service.title} - ${formatRub(service.price)}`,
         callback_data: `svc:${service.id}`,
       },
     ]);
 
-  await sendTelegramMessage(chatId, "Выберите услугу:", { inline_keyboard: rows });
+  rows.push([{ text: "Добавить другое направление", callback_data: "choose_category" }]);
+  rows.push([{ text: "Готово", callback_data: "services_done" }]);
+
+  const selectedServices = getSelectedServices(state);
+  const summary = selectedServices.length
+    ? `\n\nВыбрано: ${selectedServices.map((service) => service.title).join(", ")}\nИтого: ${formatRub(
+        getServicesPrice(selectedServices)
+      )}, ${getServicesDuration(selectedServices)} мин.`
+    : "";
+
+  const text = `Выберите одну или несколько услуг.${summary}\n\nКогда закончите выбор, нажмите «Готово».`;
+  if (messageId) {
+    await editTelegramMessage(chatId, messageId, text, { inline_keyboard: rows });
+    return;
+  }
+
+  await sendTelegramMessage(chatId, text, { inline_keyboard: rows });
 }
 
-async function sendDates(chatId, service) {
+async function sendDates(chatId, selectedServices) {
   const dates = getSelectableDates();
   const rows = chunk(
     dates.map((date) => ({
       text: formatShortDateRu(date),
       callback_data: `date:${date}`,
     })),
-    2
+    1
   );
 
   await sendTelegramMessage(
     chatId,
-    `Услуга: ${service.title}\nДлительность: ${service.durationMinutes} мин.\nВыберите день:`,
+    `${buildServicesSummary(selectedServices)}\n\nВыберите день:`,
     { inline_keyboard: rows }
   );
 }
 
-async function sendSlots(chatId, service, date) {
-  const slots = await getAvailableSlots(date, service.durationMinutes);
+async function sendSlots(chatId, selectedServices, date) {
+  const totalDuration = getServicesDuration(selectedServices);
+  const slots = await getAvailableSlots(date, totalDuration);
   if (!slots.length) {
     await sendTelegramMessage(chatId, "На этот день свободных окон нет. Выберите другой день.", {
-      inline_keyboard: [[{ text: "Выбрать дату", callback_data: `svc:${service.id}` }]],
+      inline_keyboard: [[{ text: "Выбрать дату", callback_data: "services_done" }]],
     });
     return;
   }
 
   const rows = chunk(
     slots.map((time) => ({
-      text: time,
+      text: `${formatDateWithWeekdayRu(date)}, ${time}`,
       callback_data: `slot:${date}:${time.replace(":", "-")}`,
     })),
-    3
+    1
   );
 
-  await sendTelegramMessage(chatId, `Свободное время на ${formatDateRu(date)}:`, { inline_keyboard: rows });
+  await sendTelegramMessage(chatId, `Свободное время на ${formatDateWithWeekdayRu(date)}:`, { inline_keyboard: rows });
 }
 
 async function notifyAppointmentTelegram(appointment) {
@@ -623,9 +702,9 @@ async function notifyAppointmentTelegram(appointment) {
     "",
     `Имя: ${appointment.clientName}`,
     `Телефон: ${appointment.clientPhone}`,
-    `Услуга: ${appointment.serviceTitle}`,
+    `Услуги: ${appointment.serviceTitle}`,
     `Цена: ${formatRub(appointment.price)}`,
-    `Дата и время: ${formatDateRu(appointment.date)} ${appointment.time}`,
+    `Дата и время: ${formatDateWithWeekdayRu(appointment.date)}, ${appointment.time}`,
     `Длительность: ${appointment.durationMinutes} мин.`,
   ].join("\n");
 
@@ -650,7 +729,7 @@ async function buildAppointmentsText() {
     "",
     ...upcoming.map(
       (item) =>
-        `${formatDateRu(item.date)} ${item.time} - ${item.clientName}, ${item.clientPhone}, ${item.serviceTitle}`
+        `${formatDateWithWeekdayRu(item.date)}, ${item.time} - ${item.clientName}, ${item.clientPhone}, ${item.serviceTitle}`
     ),
   ].join("\n");
 }
@@ -669,6 +748,27 @@ function buildServicesText() {
 
 function getServiceById(id) {
   return services.find((service) => service.id === id);
+}
+
+function getSelectedServices(state) {
+  const ids = Array.isArray(state?.selectedServiceIds) ? state.selectedServiceIds : [];
+  return ids.map((id) => getServiceById(id)).filter(Boolean);
+}
+
+function getServicesDuration(selectedServices) {
+  return selectedServices.reduce((sum, service) => sum + Number(service.durationMinutes || 0), 0);
+}
+
+function getServicesPrice(selectedServices) {
+  return selectedServices.reduce((sum, service) => sum + Number(service.price || 0), 0);
+}
+
+function buildServicesSummary(selectedServices) {
+  return [
+    `Услуги: ${selectedServices.map((service) => service.title).join(", ")}`,
+    `Длительность: ${getServicesDuration(selectedServices)} мин.`,
+    `Стоимость: ${formatRub(getServicesPrice(selectedServices))}`,
+  ].join("\n");
 }
 
 function getSelectableDates() {
@@ -749,10 +849,14 @@ function formatDateRu(date) {
 
 function formatShortDateRu(date) {
   const value = new Date(`${date}T12:00:00${bookingTimezoneOffset}`);
-  const weekday = value.toLocaleDateString("ru-RU", { weekday: "short" }).replace(".", "");
+  const weekday = value.toLocaleDateString("ru-RU", { weekday: "long" });
   const day = String(value.getDate()).padStart(2, "0");
   const month = String(value.getMonth() + 1).padStart(2, "0");
   return `${weekday} ${day}.${month}`;
+}
+
+function formatDateWithWeekdayRu(date) {
+  return formatShortDateRu(date);
 }
 
 function formatRub(value) {
@@ -787,6 +891,15 @@ function restartKeyboard(text = "Начать заново") {
 async function sendTelegramMessage(chatId, text, replyMarkup) {
   await telegramApi("sendMessage", {
     chat_id: chatId,
+    text,
+    reply_markup: replyMarkup || undefined,
+  });
+}
+
+async function editTelegramMessage(chatId, messageId, text, replyMarkup) {
+  await telegramApi("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
     text,
     reply_markup: replyMarkup || undefined,
   });

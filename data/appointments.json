@@ -34,5 +34,81 @@
     "time": "12:30",
     "startAt": "2026-06-24T12:30:00+03:00",
     "endAt": "2026-06-24T10:00:00.000Z"
+  },
+  {
+    "id": "f0d6c275-b648-423d-bc0d-d9ab5a157431",
+    "status": "active",
+    "createdAt": "2026-06-28T12:15:47.704Z",
+    "source": "telegram_bot",
+    "telegramChatId": "6774702668",
+    "clientName": "Анна",
+    "clientPhone": "+7 928 471 52 79",
+    "serviceId": "laser_bikini_deep",
+    "serviceTitle": "Глубокое бикини",
+    "serviceCategory": "Лазерная эпиляция",
+    "price": 1000,
+    "durationMinutes": 45,
+    "date": "2026-07-05",
+    "time": "14:00",
+    "startAt": "2026-07-05T14:00:00+03:00",
+    "endAt": "2026-07-05T11:45:00.000Z"
+  },
+  {
+    "id": "6b17a54a-e1f4-4ded-9f99-e4e935c4d5f0",
+    "status": "active",
+    "createdAt": "2026-06-28T12:36:45.274Z",
+    "source": "telegram_bot",
+    "telegramChatId": "6774702668",
+    "clientName": "Анна",
+    "clientPhone": "+7 928 471 52 79",
+    "serviceId": "laser_upper_lip",
+    "serviceIds": [
+      "laser_upper_lip",
+      "laser_armpits",
+      "laser_legs_full"
+    ],
+    "serviceTitle": "Верхняя губа, Подмышки, Ноги полностью",
+    "serviceTitles": [
+      "Верхняя губа",
+      "Подмышки",
+      "Ноги полностью"
+    ],
+    "serviceCategory": "Лазерная эпиляция",
+    "serviceCategories": [
+      "Лазерная эпиляция"
+    ],
+    "price": 2300,
+    "durationMinutes": 105,
+    "date": "2026-07-04",
+    "time": "14:30",
+    "startAt": "2026-07-04T14:30:00+03:00",
+    "endAt": "2026-07-04T13:15:00.000Z"
+  },
+  {
+    "id": "a5b73cfe-b957-4ae6-a2de-648afb7c5496",
+    "status": "active",
+    "createdAt": "2026-06-28T12:38:16.430Z",
+    "source": "telegram_bot",
+    "telegramChatId": "8296055954",
+    "clientName": "Вика",
+    "clientPhone": "+7 946 952 67 97",
+    "serviceId": "lpg_60",
+    "serviceIds": [
+      "lpg_60"
+    ],
+    "serviceTitle": "Комплекс 60 минут",
+    "serviceTitles": [
+      "Комплекс 60 минут"
+    ],
+    "serviceCategory": "LPG-массаж",
+    "serviceCategories": [
+      "LPG-массаж"
+    ],
+    "price": 1500,
+    "durationMinutes": 60,
+    "date": "2026-07-04",
+    "time": "17:00",
+    "startAt": "2026-07-04T17:00:00+03:00",
+    "endAt": "2026-07-04T15:00:00.000Z"
   }
 ]

@@ -52,7 +52,7 @@ function renderAppointments(items) {
           <article class="request">
             <h3>${item.date || "-"} ${item.time || ""} · ${item.clientName || "Без имени"}</h3>
             <p><b>Телефон:</b> ${item.clientPhone || "-"}</p>
-            <p><b>Услуга:</b> ${item.serviceTitle || "-"}</p>
+            <p><b>Услуги:</b> ${item.serviceTitle || "-"}</p>
             <p><b>Стоимость:</b> ${item.price ? `${item.price} ₽` : "-"}</p>
             <p><b>Длительность:</b> ${item.durationMinutes || "-"} мин.</p>
             <p><b>Статус:</b> ${item.status || "active"}</p>
