@@ -29,6 +29,7 @@ const databaseFilePath = process.env.DATABASE_FILE
 const workdayStart = process.env.BOOKING_WORKDAY_START || "09:00";
 const workdayEnd = process.env.BOOKING_WORKDAY_END || "20:00";
 const bookingDaysAhead = Number(process.env.BOOKING_DAYS_AHEAD || 14);
+const adminScheduleDaysAhead = Number(process.env.ADMIN_SCHEDULE_DAYS_AHEAD || 30);
 const bookingSlotStepMinutes = Number(process.env.BOOKING_SLOT_STEP_MINUTES || 30);
 const bookingTimezoneOffset = process.env.BOOKING_TIMEZONE_OFFSET || "+03:00";
 const sessionTtlMs = 1000 * 60 * 60 * 24;
@@ -1208,14 +1209,14 @@ function adminBackKeyboard() {
 
 async function sendScheduleMenu(chatId) {
   const dateRows = chunk(
-    getSelectableDates().map((date) => ({
+    getAdminScheduleDates().map((date) => ({
       text: formatShortDateRu(date),
       callback_data: `schedule:date:${date}`,
     })),
-    2
+    3
   );
 
-  await sendTelegramMessage(chatId, "Корректировка расписания\n\nВыберите дату:", {
+  await sendTelegramMessage(chatId, "Корректировка расписания\n\nВыберите дату на ближайший месяц:", {
     inline_keyboard: [
       ...dateRows,
       [{ text: "Ввести дату вручную", callback_data: "schedule:manual_date" }],
@@ -1233,7 +1234,13 @@ async function handleScheduleCallback(chatId, data) {
 
   if (data.startsWith("schedule:date:")) {
     const date = data.slice("schedule:date:".length);
-    await sendScheduleStartMenu(chatId, date);
+    await sendScheduleFreeTimeMenu(chatId, date);
+    return;
+  }
+
+  if (data.startsWith("schedule:block_slot:")) {
+    const [, , date, rawStart, rawEnd] = data.split(":");
+    await blockScheduleInterval(chatId, date, rawStart.replace("-", ":"), rawEnd.replace("-", ":"));
     return;
   }
 
@@ -1263,11 +1270,11 @@ async function handleScheduleCallback(chatId, data) {
     };
     const conflict = getOverlappingAppointments(date, minutesToTime(workWindow.start), minutesToTime(workWindow.end));
     if (conflict.length) {
-      await sendScheduleStartMenu(chatId, date, "На этот день уже есть запись. Сначала отмените или перенесите запись.");
+      await sendScheduleFreeTimeMenu(chatId, date, "На этот день уже есть запись. Сначала отмените или перенесите запись.");
       return;
     }
     createScheduleRule({ date, type: "day_off", createdBy: chatId });
-    await sendScheduleDateMenu(chatId, date, "День закрыт для записи.");
+    await sendScheduleFreeTimeMenu(chatId, date, "День закрыт для записи.");
     return;
   }
 
@@ -1288,7 +1295,7 @@ async function handleScheduleCallback(chatId, data) {
   if (data.startsWith("schedule:clear:")) {
     const date = data.slice("schedule:clear:".length);
     database.prepare("DELETE FROM schedule_rules WHERE rule_date = ?").run(date);
-    await sendScheduleDateMenu(chatId, date, "Ограничения на эту дату очищены.");
+    await sendScheduleFreeTimeMenu(chatId, date, "Ограничения на эту дату очищены.");
   }
 }
 
@@ -1304,11 +1311,43 @@ async function sendScheduleDateMenu(chatId, date, notice = "") {
 
   await sendTelegramMessage(chatId, lines.join("\n"), {
     inline_keyboard: [
-      [{ text: "Выбрать время для выходного", callback_data: `schedule:date:${date}` }],
+      [{ text: "Свободное время для выходного", callback_data: `schedule:date:${date}` }],
       [{ text: "Закрыть весь день", callback_data: `schedule:dayoff:${date}` }],
       [{ text: "Задать часы работы на день", callback_data: `schedule:hours:${date}` }],
       [{ text: "Очистить ограничения даты", callback_data: `schedule:clear:${date}` }],
       [{ text: "Назад", callback_data: "admin:schedule" }],
+    ],
+  });
+}
+
+async function sendScheduleFreeTimeMenu(chatId, date, notice = "") {
+  const rules = loadScheduleRules(date);
+  const freeSlots = await getFreeScheduleBlocks(date);
+  const lines = [
+    `Корректировка: ${formatDateWithWeekdayRu(date)}`,
+    notice,
+    rules.length ? `Текущие ограничения:\n${rules.map(formatScheduleRule).join("\n")}` : "Ограничений на дату нет.",
+    "",
+    freeSlots.length
+      ? "Выберите свободное время, которое нужно сделать выходным:"
+      : "Свободных окошек для закрытия на эту дату нет.",
+  ].filter(Boolean);
+
+  const slotRows = chunk(
+    freeSlots.map((slot) => ({
+      text: `${slot.start}-${slot.end}`,
+      callback_data: `schedule:block_slot:${date}:${slot.start.replace(":", "-")}:${slot.end.replace(":", "-")}`,
+    })),
+    3
+  );
+
+  await sendTelegramMessage(chatId, lines.join("\n"), {
+    inline_keyboard: [
+      ...slotRows,
+      [{ text: "Закрыть весь день", callback_data: `schedule:dayoff:${date}` }],
+      [{ text: "Задать часы работы на день", callback_data: `schedule:hours:${date}` }],
+      [{ text: "Очистить ограничения даты", callback_data: `schedule:clear:${date}` }],
+      [{ text: "Назад к датам", callback_data: "admin:schedule" }],
     ],
   });
 }
@@ -1396,7 +1435,7 @@ async function handleAdminText(chatId, text, state) {
     }
 
     telegramDialogState.delete(chatId);
-    await sendScheduleDateMenu(chatId, date);
+    await sendScheduleFreeTimeMenu(chatId, date);
     return;
   }
 
@@ -1421,7 +1460,7 @@ async function handleAdminText(chatId, text, state) {
       createdBy: chatId,
     });
     telegramDialogState.delete(chatId);
-    await sendScheduleDateMenu(chatId, state.scheduleDate, "Часы работы на день обновлены.");
+    await sendScheduleFreeTimeMenu(chatId, state.scheduleDate, "Часы работы на день обновлены.");
   }
 }
 
@@ -1523,6 +1562,17 @@ function getSelectableDates() {
   return dates;
 }
 
+function getAdminScheduleDates() {
+  const dates = [];
+  const now = new Date();
+  for (let index = 0; index < adminScheduleDaysAhead; index += 1) {
+    const date = new Date(now);
+    date.setDate(now.getDate() + index);
+    dates.push(toDateKey(date));
+  }
+  return dates;
+}
+
 function isDateSelectable(date) {
   return getSelectableDates().includes(date);
 }
@@ -1536,6 +1586,21 @@ async function getAvailableSlots(date, durationMinutes) {
     const time = minutesToTime(minutes);
     if (await isSlotAvailable(date, time, durationMinutes)) {
       result.push(time);
+    }
+  }
+
+  return result;
+}
+
+async function getFreeScheduleBlocks(date) {
+  const result = [];
+  const workWindow = getWorkWindowForDate(date);
+  if (!workWindow) return result;
+
+  for (let minutes = workWindow.start; minutes + bookingSlotStepMinutes <= workWindow.end; minutes += bookingSlotStepMinutes) {
+    const start = minutesToTime(minutes);
+    if (await isSlotAvailable(date, start, bookingSlotStepMinutes)) {
+      result.push({ start, end: minutesToTime(minutes + bookingSlotStepMinutes) });
     }
   }
 
@@ -1618,7 +1683,7 @@ function getOverlappingAppointments(date, startTime, endTime) {
 async function blockScheduleInterval(chatId, date, startTime, endTime) {
   const conflict = getOverlappingAppointments(date, startTime, endTime);
   if (conflict.length) {
-    await sendScheduleConfirmMenu(chatId, date, startTime, endTime);
+    await sendScheduleFreeTimeMenu(chatId, date, "На это время есть запись. Выберите другое свободное окошко.");
     return;
   }
 
@@ -1629,7 +1694,7 @@ async function blockScheduleInterval(chatId, date, startTime, endTime) {
     endTime,
     createdBy: chatId,
   });
-  await sendScheduleDateMenu(chatId, date, `Интервал ${startTime}-${endTime} закрыт для записи.`);
+  await sendScheduleFreeTimeMenu(chatId, date, `Интервал ${startTime}-${endTime} закрыт для записи.`);
 }
 
 function appointmentsOverlap(item, startAt, endAt) {
