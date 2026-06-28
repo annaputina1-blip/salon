@@ -34,6 +34,9 @@ const bookingSlotStepMinutes = Number(process.env.BOOKING_SLOT_STEP_MINUTES || 3
 const bookingTimezoneOffset = process.env.BOOKING_TIMEZONE_OFFSET || "+03:00";
 const appointmentReminderHours = Number(process.env.APPOINTMENT_REMINDER_HOURS || 3);
 const appointmentReminderCheckMs = Number(process.env.APPOINTMENT_REMINDER_CHECK_MS || 60_000);
+const reviewRequestDelayMinutes = Number(process.env.REVIEW_REQUEST_DELAY_MINUTES || 15);
+const publicSiteUrl = (process.env.PUBLIC_SITE_URL || "https://massag-yablonovskiy.ru").replace(/\/+$/, "");
+const reviewUrl = process.env.REVIEW_URL || `${publicSiteUrl}/#reviews`;
 const sessionTtlMs = 1000 * 60 * 60 * 24;
 const sessions = new Map();
 const telegramDialogState = new Map();
@@ -41,6 +44,8 @@ let telegramUpdateOffset = 0;
 let telegramPolling = false;
 let reminderSchedulerStarted = false;
 let reminderCheckRunning = false;
+let reviewRequestSchedulerStarted = false;
+let reviewRequestCheckRunning = false;
 let appointmentWriteLock = Promise.resolve();
 const database = initializeDatabase();
 
@@ -162,6 +167,23 @@ http
         return;
       }
 
+      const completeAppointmentMatch = pathname.match(/^\/api\/admin\/appointments\/([^/]+)\/complete$/);
+      if (request.method === "POST" && completeAppointmentMatch) {
+        if (!isAuthorized(request)) {
+          sendJson(response, 401, { ok: false, message: "Unauthorized" });
+          return;
+        }
+
+        const result = completeAppointmentByAdmin(decodeURIComponent(completeAppointmentMatch[1]), getAdminActor(request));
+        if (!result.ok) {
+          sendJson(response, result.statusCode, { ok: false, message: result.message });
+          return;
+        }
+
+        sendJson(response, 200, { ok: true, appointment: result.appointment });
+        return;
+      }
+
       const requestedPath = pathname === "/" ? "index.html" : pathname.slice(1);
       const filePath = path.resolve(root, requestedPath);
 
@@ -191,6 +213,7 @@ http
     console.log(`http://${host}:${port}`);
     startTelegramBot();
     startAppointmentReminderScheduler();
+    startReviewRequestScheduler();
   })
   .on("error", (error) => {
     if (error.code === "EADDRINUSE") {
@@ -253,6 +276,12 @@ function isAuthorized(request) {
   return true;
 }
 
+function getAdminActor(request) {
+  const rawCookie = parseCookies(request.headers.cookie || "").admin_session;
+  const [sessionId] = rawCookie ? rawCookie.split(".") : [""];
+  return sessionId ? `admin:${sessionId.slice(0, 8)}` : "admin";
+}
+
 function setCookie(response, name, value, options = {}) {
   const parts = [`${name}=${encodeURIComponent(value)}`];
   if (options.maxAge !== undefined) parts.push(`Max-Age=${options.maxAge}`);
@@ -312,7 +341,10 @@ function initializeDatabase() {
       end_at TEXT NOT NULL,
       cancelled_at TEXT NOT NULL DEFAULT '',
       cancelled_by TEXT NOT NULL DEFAULT '',
+      completed_at TEXT NOT NULL DEFAULT '',
+      completed_by TEXT NOT NULL DEFAULT '',
       reminder_sent_at TEXT NOT NULL DEFAULT '',
+      review_requested_at TEXT NOT NULL DEFAULT '',
       payload_json TEXT NOT NULL DEFAULT '{}'
     );
 
@@ -335,7 +367,10 @@ function initializeDatabase() {
 
   ensureColumn(db, "appointments", "cancelled_at", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "appointments", "cancelled_by", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "appointments", "completed_at", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "appointments", "completed_by", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "appointments", "reminder_sent_at", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "appointments", "review_requested_at", "TEXT NOT NULL DEFAULT ''");
 
   migrateJsonDataToDatabase(db);
   return db;
@@ -418,8 +453,9 @@ function insertAppointmentRow(db, item) {
       id, status, created_at, source, telegram_chat_id, client_name, client_phone,
       service_id, service_ids_json, service_title, service_titles_json,
       service_category, service_categories_json, price, duration_minutes,
-      appointment_date, appointment_time, start_at, end_at, cancelled_at, cancelled_by, reminder_sent_at, payload_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      appointment_date, appointment_time, start_at, end_at, cancelled_at, cancelled_by,
+      completed_at, completed_by, reminder_sent_at, review_requested_at, payload_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     item.id || crypto.randomUUID(),
     item.status || "active",
@@ -442,7 +478,10 @@ function insertAppointmentRow(db, item) {
     item.endAt || "",
     item.cancelledAt || "",
     item.cancelledBy || "",
+    item.completedAt || "",
+    item.completedBy || "",
     item.reminderSentAt || "",
+    item.reviewRequestedAt || "",
     JSON.stringify(item)
   );
 }
@@ -490,7 +529,10 @@ function appointmentRowToObject(row) {
     endAt: row.end_at,
     cancelledAt: row.cancelled_at,
     cancelledBy: row.cancelled_by,
+    completedAt: row.completed_at,
+    completedBy: row.completed_by,
     reminderSentAt: row.reminder_sent_at,
+    reviewRequestedAt: row.review_requested_at,
   };
 }
 
@@ -590,6 +632,21 @@ function startAppointmentReminderScheduler() {
   }, Math.max(10_000, appointmentReminderCheckMs));
 }
 
+function startReviewRequestScheduler() {
+  if (!telegramBotToken || reviewRequestSchedulerStarted) return;
+  reviewRequestSchedulerStarted = true;
+  setTimeout(() => {
+    checkReviewRequests().catch((error) => {
+      console.error("Telegram review request check error:", error.message);
+    });
+  }, 5000);
+  setInterval(() => {
+    checkReviewRequests().catch((error) => {
+      console.error("Telegram review request check error:", error.message);
+    });
+  }, Math.max(10_000, appointmentReminderCheckMs));
+}
+
 async function checkAppointmentReminders() {
   if (reminderCheckRunning) return;
   reminderCheckRunning = true;
@@ -623,6 +680,36 @@ async function checkAppointmentReminders() {
   }
 }
 
+async function checkReviewRequests() {
+  if (reviewRequestCheckRunning) return;
+  reviewRequestCheckRunning = true;
+
+  try {
+    const readyBefore = new Date(Date.now() - Math.max(0, reviewRequestDelayMinutes) * 60 * 1000).toISOString();
+    const rows = database
+      .prepare(
+        `
+          SELECT * FROM appointments
+          WHERE status = 'completed'
+            AND telegram_chat_id != ''
+            AND completed_at != ''
+            AND completed_at <= ?
+            AND review_requested_at = ''
+          ORDER BY completed_at ASC
+          LIMIT 50
+        `
+      )
+      .all(readyBefore)
+      .map(appointmentRowToObject);
+
+    for (const appointment of rows) {
+      await sendReviewRequest(appointment);
+    }
+  } finally {
+    reviewRequestCheckRunning = false;
+  }
+}
+
 async function sendAppointmentReminder(appointment) {
   const text = [
     "Напоминание о записи",
@@ -642,6 +729,53 @@ async function sendAppointmentReminder(appointment) {
   } catch (error) {
     console.error(`Telegram reminder notification error for appointment ${appointment.id}:`, error.message);
   }
+}
+
+async function sendReviewRequest(appointment) {
+  const text = [
+    "Спасибо, что вы посетили наш салон. Будем очень благодарны, если вы оставите отзыв о нас на нашем сайте. В благодарность за отзыв скидка 5% на следующее посещение. Просто покажите отзыв при следующем визите.",
+    "",
+    reviewUrl,
+  ].join("\n");
+
+  try {
+    await sendTelegramMessage(appointment.telegramChatId, text);
+    database
+      .prepare("UPDATE appointments SET review_requested_at = ? WHERE id = ? AND review_requested_at = ''")
+      .run(new Date().toISOString(), appointment.id);
+  } catch (error) {
+    console.error(`Telegram review request error for appointment ${appointment.id}:`, error.message);
+  }
+}
+
+function completeAppointmentByAdmin(appointmentId, completedBy) {
+  const row = database.prepare("SELECT * FROM appointments WHERE id = ? LIMIT 1").get(appointmentId);
+  if (!row) {
+    return { ok: false, statusCode: 404, message: "Запись не найдена." };
+  }
+
+  const appointment = appointmentRowToObject(row);
+  if (appointment.status === "cancelled") {
+    return { ok: false, statusCode: 409, message: "Отмененную запись нельзя отметить выполненной." };
+  }
+  if (appointment.status === "completed") {
+    return { ok: true, appointment };
+  }
+
+  const completedAt = new Date().toISOString();
+  database
+    .prepare("UPDATE appointments SET status = 'completed', completed_at = ?, completed_by = ? WHERE id = ?")
+    .run(completedAt, completedBy || "admin", appointmentId);
+
+  return {
+    ok: true,
+    appointment: {
+      ...appointment,
+      status: "completed",
+      completedAt,
+      completedBy: completedBy || "admin",
+    },
+  };
 }
 
 async function pollTelegramUpdates() {
