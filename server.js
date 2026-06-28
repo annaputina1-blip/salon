@@ -32,11 +32,15 @@ const bookingDaysAhead = Number(process.env.BOOKING_DAYS_AHEAD || 14);
 const adminScheduleDaysAhead = Number(process.env.ADMIN_SCHEDULE_DAYS_AHEAD || 30);
 const bookingSlotStepMinutes = Number(process.env.BOOKING_SLOT_STEP_MINUTES || 30);
 const bookingTimezoneOffset = process.env.BOOKING_TIMEZONE_OFFSET || "+03:00";
+const appointmentReminderHours = Number(process.env.APPOINTMENT_REMINDER_HOURS || 3);
+const appointmentReminderCheckMs = Number(process.env.APPOINTMENT_REMINDER_CHECK_MS || 60_000);
 const sessionTtlMs = 1000 * 60 * 60 * 24;
 const sessions = new Map();
 const telegramDialogState = new Map();
 let telegramUpdateOffset = 0;
 let telegramPolling = false;
+let reminderSchedulerStarted = false;
+let reminderCheckRunning = false;
 let appointmentWriteLock = Promise.resolve();
 const database = initializeDatabase();
 
@@ -186,6 +190,7 @@ http
   .listen(port, host, () => {
     console.log(`http://${host}:${port}`);
     startTelegramBot();
+    startAppointmentReminderScheduler();
   })
   .on("error", (error) => {
     if (error.code === "EADDRINUSE") {
@@ -307,6 +312,7 @@ function initializeDatabase() {
       end_at TEXT NOT NULL,
       cancelled_at TEXT NOT NULL DEFAULT '',
       cancelled_by TEXT NOT NULL DEFAULT '',
+      reminder_sent_at TEXT NOT NULL DEFAULT '',
       payload_json TEXT NOT NULL DEFAULT '{}'
     );
 
@@ -329,6 +335,7 @@ function initializeDatabase() {
 
   ensureColumn(db, "appointments", "cancelled_at", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "appointments", "cancelled_by", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "appointments", "reminder_sent_at", "TEXT NOT NULL DEFAULT ''");
 
   migrateJsonDataToDatabase(db);
   return db;
@@ -411,8 +418,8 @@ function insertAppointmentRow(db, item) {
       id, status, created_at, source, telegram_chat_id, client_name, client_phone,
       service_id, service_ids_json, service_title, service_titles_json,
       service_category, service_categories_json, price, duration_minutes,
-      appointment_date, appointment_time, start_at, end_at, cancelled_at, cancelled_by, payload_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      appointment_date, appointment_time, start_at, end_at, cancelled_at, cancelled_by, reminder_sent_at, payload_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     item.id || crypto.randomUUID(),
     item.status || "active",
@@ -435,6 +442,7 @@ function insertAppointmentRow(db, item) {
     item.endAt || "",
     item.cancelledAt || "",
     item.cancelledBy || "",
+    item.reminderSentAt || "",
     JSON.stringify(item)
   );
 }
@@ -482,6 +490,7 @@ function appointmentRowToObject(row) {
     endAt: row.end_at,
     cancelledAt: row.cancelled_at,
     cancelledBy: row.cancelled_by,
+    reminderSentAt: row.reminder_sent_at,
   };
 }
 
@@ -564,6 +573,75 @@ function startTelegramBot() {
     .finally(() => {
       pollTelegramUpdates();
     });
+}
+
+function startAppointmentReminderScheduler() {
+  if (!telegramBotToken || reminderSchedulerStarted) return;
+  reminderSchedulerStarted = true;
+  setTimeout(() => {
+    checkAppointmentReminders().catch((error) => {
+      console.error("Telegram reminder check error:", error.message);
+    });
+  }, 5000);
+  setInterval(() => {
+    checkAppointmentReminders().catch((error) => {
+      console.error("Telegram reminder check error:", error.message);
+    });
+  }, Math.max(10_000, appointmentReminderCheckMs));
+}
+
+async function checkAppointmentReminders() {
+  if (reminderCheckRunning) return;
+  reminderCheckRunning = true;
+
+  try {
+    const now = Date.now();
+    const reminderWindowEnd = now + Math.max(0, appointmentReminderHours) * 60 * 60 * 1000;
+    const rows = database
+      .prepare(
+        `
+          SELECT * FROM appointments
+          WHERE status != 'cancelled'
+            AND telegram_chat_id != ''
+            AND reminder_sent_at = ''
+            AND start_at != ''
+            AND start_at > ?
+          ORDER BY start_at ASC
+          LIMIT 50
+        `
+      )
+      .all(new Date(now - 60 * 60 * 1000).toISOString())
+      .map(appointmentRowToObject);
+
+    for (const appointment of rows) {
+      const startsAt = Date.parse(appointment.startAt || "");
+      if (!Number.isFinite(startsAt) || startsAt <= now || startsAt > reminderWindowEnd) continue;
+      await sendAppointmentReminder(appointment);
+    }
+  } finally {
+    reminderCheckRunning = false;
+  }
+}
+
+async function sendAppointmentReminder(appointment) {
+  const text = [
+    "Напоминание о записи",
+    "",
+    `У вас запись: ${formatDateWithWeekdayRu(appointment.date)}, ${appointment.time}`,
+    `Услуги: ${appointment.serviceTitle || "-"}`,
+    `Длительность: ${appointment.durationMinutes || "-"} мин.`,
+    "",
+    "Ждем вас!",
+  ].join("\n");
+
+  try {
+    await sendTelegramMessage(appointment.telegramChatId, text);
+    database
+      .prepare("UPDATE appointments SET reminder_sent_at = ? WHERE id = ? AND reminder_sent_at = ''")
+      .run(new Date().toISOString(), appointment.id);
+  } catch (error) {
+    console.error(`Telegram reminder notification error for appointment ${appointment.id}:`, error.message);
+  }
 }
 
 async function pollTelegramUpdates() {
