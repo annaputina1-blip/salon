@@ -956,6 +956,7 @@ async function sendAdminMenu(chatId) {
       [{ text: "Записи на завтра", callback_data: "admin:tomorrow" }],
       [{ text: "Все будущие записи", callback_data: "admin:future" }],
       [{ text: "Статистика за неделю", callback_data: "admin:week" }],
+      [{ text: "Статистика за месяц", callback_data: "admin:month" }],
     ],
   });
 }
@@ -982,7 +983,12 @@ async function handleAdminCallback(chatId, data) {
   }
 
   if (data === "admin:week") {
-    await sendWeeklyStats(chatId);
+    await sendStats(chatId, "Статистика за неделю", getDateKeyForOffset(-6), getDateKeyForOffset(0));
+    return;
+  }
+
+  if (data === "admin:month") {
+    await sendStats(chatId, "Статистика за месяц", getDateKeyForOffset(-29), getDateKeyForOffset(0));
     return;
   }
 
@@ -1031,19 +1037,35 @@ async function sendAppointmentList(chatId, title, rows) {
     return;
   }
 
-  for (const appointment of rows) {
-    await sendTelegramMessage(chatId, formatAdminAppointment(appointment), {
-      inline_keyboard: [
-        [{ text: "Отменить запись", callback_data: `cancel:${appointment.id}` }],
-        [{ text: "Назад в админку", callback_data: "admin:menu" }],
-      ],
-    });
+  const visibleRows = rows.slice(0, 10);
+  const total = visibleRows.reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const lines = [
+    title,
+    "",
+    "№ | Дата | Время | Клиент | Услуга | Сумма",
+    ...visibleRows.map((item, index) => formatCompactAppointmentRow(item, index + 1)),
+    "",
+    `Итого: ${visibleRows.length} записей, ${formatRub(total)}`,
+  ];
+
+  if (rows.length > visibleRows.length) {
+    lines.push(`Показаны первые ${visibleRows.length} из ${rows.length}.`);
   }
+
+  const cancelRows = chunk(
+    visibleRows.map((item, index) => ({
+      text: `Отменить ${index + 1}`,
+      callback_data: `cancel:${item.id}`,
+    })),
+    2
+  );
+
+  await sendTelegramMessage(chatId, lines.join("\n").slice(0, 3900), {
+    inline_keyboard: [...cancelRows, [{ text: "Назад в админку", callback_data: "admin:menu" }]],
+  });
 }
 
-async function sendWeeklyStats(chatId) {
-  const fromDate = getDateKeyForOffset(-6);
-  const toDate = getDateKeyForOffset(0);
+async function sendStats(chatId, title, fromDate, toDate) {
   const rows = database
     .prepare(
       `
@@ -1062,7 +1084,7 @@ async function sendWeeklyStats(chatId) {
   const cancelledAmount = cancelledRows.reduce((sum, item) => sum + Number(item.price || 0), 0);
 
   const lines = [
-    `Статистика за неделю: ${formatDateRu(fromDate)} - ${formatDateRu(toDate)}`,
+    `${title}: ${formatDateRu(fromDate)} - ${formatDateRu(toDate)}`,
     "",
     `Всего записей: ${rows.length}`,
     `Активные/проведенные: ${activeRows.length}`,
@@ -1070,9 +1092,13 @@ async function sendWeeklyStats(chatId) {
     `Отмененные записи: ${cancelledRows.length}`,
     `Сумма отмененных: ${formatRub(cancelledAmount)}`,
     "",
-    rows.length ? "Записи:" : "Записей за период нет.",
-    ...rows.map((item) => `- ${formatDateWithWeekdayRu(item.date)}, ${item.time}: ${item.clientName || "-"}, ${item.serviceTitle || "-"}, ${formatRub(item.price)}${item.status === "cancelled" ? " (отменена)" : ""}`),
+    rows.length ? "№ | Дата | Время | Клиент | Услуга | Сумма" : "Записей за период нет.",
+    ...rows.slice(0, 20).map((item, index) => formatCompactAppointmentRow(item, index + 1, true)),
   ];
+
+  if (rows.length > 20) {
+    lines.push(`Показаны первые 20 из ${rows.length}.`);
+  }
 
   await sendTelegramMessage(chatId, lines.join("\n").slice(0, 3900), adminBackKeyboard());
 }
@@ -1125,6 +1151,26 @@ function formatAdminAppointment(appointment) {
     `Сумма: ${formatRub(appointment.price)}`,
     `Статус: ${appointment.status || "active"}`,
   ].join("\n");
+}
+
+function formatCompactAppointmentRow(appointment, number, includeStatus = false) {
+  const status = includeStatus && appointment.status === "cancelled" ? " отменена" : "";
+  return [
+    `${number}.`,
+    formatShortDateRu(appointment.date),
+    appointment.time || "--:--",
+    compactText(appointment.clientName || "-", 14),
+    compactText(appointment.serviceTitle || "-", 24),
+    formatRub(appointment.price),
+    status,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function compactText(value, maxLength) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
 
 function adminBackKeyboard() {
