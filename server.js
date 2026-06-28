@@ -3,9 +3,9 @@ const https = require("https");
 const net = require("net");
 const tls = require("tls");
 const fs = require("fs");
-const fsp = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
+const { DatabaseSync } = require("node:sqlite");
 const { services } = require("./services");
 
 const root = __dirname;
@@ -22,6 +22,9 @@ const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy || "";
 const makeWebhookUrl = process.env.MAKE_WEBHOOK_URL || "";
 const requestsFilePath = path.join(root, "data", "requests.json");
 const appointmentsFilePath = path.join(root, "data", "appointments.json");
+const databaseFilePath = process.env.DATABASE_FILE
+  ? path.resolve(root, process.env.DATABASE_FILE)
+  : path.join(root, "data", "salon.sqlite");
 const workdayStart = process.env.BOOKING_WORKDAY_START || "09:00";
 const workdayEnd = process.env.BOOKING_WORKDAY_END || "20:00";
 const bookingDaysAhead = Number(process.env.BOOKING_DAYS_AHEAD || 14);
@@ -33,6 +36,7 @@ const telegramDialogState = new Map();
 let telegramUpdateOffset = 0;
 let telegramPolling = false;
 let appointmentWriteLock = Promise.resolve();
+const database = initializeDatabase();
 
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -259,66 +263,260 @@ async function readJsonBody(request) {
   return JSON.parse(body);
 }
 
-async function ensureRequestsStorage() {
-  const dir = path.dirname(requestsFilePath);
-  await fsp.mkdir(dir, { recursive: true });
-  if (!fs.existsSync(requestsFilePath)) {
-    await fsp.writeFile(requestsFilePath, "[]", "utf8");
+function initializeDatabase() {
+  fs.mkdirSync(path.dirname(databaseFilePath), { recursive: true });
+  const db = new DatabaseSync(databaseFilePath);
+  db.exec(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA foreign_keys = ON;
+
+    CREATE TABLE IF NOT EXISTS requests (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL DEFAULT '',
+      phone TEXT NOT NULL DEFAULT '',
+      requested_date TEXT NOT NULL DEFAULT '',
+      message TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'site',
+      submitted_at TEXT NOT NULL,
+      payload_json TEXT NOT NULL DEFAULT '{}'
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_requests_submitted_at ON requests(submitted_at);
+
+    CREATE TABLE IF NOT EXISTS appointments (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'telegram_bot',
+      telegram_chat_id TEXT NOT NULL DEFAULT '',
+      client_name TEXT NOT NULL DEFAULT '',
+      client_phone TEXT NOT NULL DEFAULT '',
+      service_id TEXT NOT NULL DEFAULT '',
+      service_ids_json TEXT NOT NULL DEFAULT '[]',
+      service_title TEXT NOT NULL DEFAULT '',
+      service_titles_json TEXT NOT NULL DEFAULT '[]',
+      service_category TEXT NOT NULL DEFAULT '',
+      service_categories_json TEXT NOT NULL DEFAULT '[]',
+      price INTEGER NOT NULL DEFAULT 0,
+      duration_minutes INTEGER NOT NULL DEFAULT 0,
+      appointment_date TEXT NOT NULL DEFAULT '',
+      appointment_time TEXT NOT NULL DEFAULT '',
+      start_at TEXT NOT NULL,
+      end_at TEXT NOT NULL,
+      payload_json TEXT NOT NULL DEFAULT '{}'
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_appointments_start_at ON appointments(start_at);
+    CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
+  `);
+
+  migrateJsonDataToDatabase(db);
+  return db;
+}
+
+function migrateJsonDataToDatabase(db) {
+  const requests = readJsonArraySync(requestsFilePath);
+  for (const item of requests) {
+    insertRequestRow(db, {
+      id: item.id || crypto.randomUUID(),
+      name: cleanText(item.name),
+      phone: cleanText(item.phone),
+      date: cleanText(item.date),
+      message: cleanText(item.message),
+      source: cleanText(item.source) || "site",
+      submittedAt: item.submittedAt || new Date().toISOString(),
+      ...item,
+    });
+  }
+
+  const appointments = readJsonArraySync(appointmentsFilePath);
+  for (const item of appointments) {
+    insertAppointmentRow(db, {
+      id: item.id || crypto.randomUUID(),
+      status: item.status || "active",
+      createdAt: item.createdAt || new Date().toISOString(),
+      ...item,
+    });
+  }
+}
+
+function readJsonArraySync(filePath) {
+  if (!fs.existsSync(filePath)) return [];
+  try {
+    const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+function insertRequestRow(db, item) {
+  db.prepare(`
+    INSERT OR IGNORE INTO requests (
+      id, name, phone, requested_date, message, source, submitted_at, payload_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    item.id || crypto.randomUUID(),
+    item.name || "",
+    item.phone || "",
+    item.date || "",
+    item.message || "",
+    item.source || "site",
+    item.submittedAt || new Date().toISOString(),
+    JSON.stringify(item)
+  );
+}
+
+function insertAppointmentRow(db, item) {
+  const serviceIds = Array.isArray(item.serviceIds) ? item.serviceIds : item.serviceId ? [item.serviceId] : [];
+  const serviceTitles = Array.isArray(item.serviceTitles)
+    ? item.serviceTitles
+    : item.serviceTitle
+      ? String(item.serviceTitle).split(",").map((value) => value.trim()).filter(Boolean)
+      : [];
+  const serviceCategories = Array.isArray(item.serviceCategories)
+    ? item.serviceCategories
+    : item.serviceCategory
+      ? String(item.serviceCategory).split(",").map((value) => value.trim()).filter(Boolean)
+      : [];
+
+  db.prepare(`
+    INSERT OR IGNORE INTO appointments (
+      id, status, created_at, source, telegram_chat_id, client_name, client_phone,
+      service_id, service_ids_json, service_title, service_titles_json,
+      service_category, service_categories_json, price, duration_minutes,
+      appointment_date, appointment_time, start_at, end_at, payload_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    item.id || crypto.randomUUID(),
+    item.status || "active",
+    item.createdAt || new Date().toISOString(),
+    item.source || "telegram_bot",
+    String(item.telegramChatId || ""),
+    item.clientName || "",
+    item.clientPhone || "",
+    item.serviceId || serviceIds[0] || "",
+    JSON.stringify(serviceIds),
+    item.serviceTitle || serviceTitles.join(", "),
+    JSON.stringify(serviceTitles),
+    item.serviceCategory || serviceCategories.join(", "),
+    JSON.stringify(serviceCategories),
+    Number(item.price || 0),
+    Number(item.durationMinutes || 0),
+    item.date || "",
+    item.time || "",
+    item.startAt || "",
+    item.endAt || "",
+    JSON.stringify(item)
+  );
+}
+
+function requestRowToObject(row) {
+  const payload = parseJsonObject(row.payload_json);
+  return {
+    ...payload,
+    id: row.id,
+    name: row.name,
+    phone: row.phone,
+    date: row.requested_date,
+    message: row.message,
+    source: row.source,
+    submittedAt: row.submitted_at,
+  };
+}
+
+function appointmentRowToObject(row) {
+  const payload = parseJsonObject(row.payload_json);
+  const serviceIds = parseJsonArray(row.service_ids_json);
+  const serviceTitles = parseJsonArray(row.service_titles_json);
+  const serviceCategories = parseJsonArray(row.service_categories_json);
+
+  return {
+    ...payload,
+    id: row.id,
+    status: row.status,
+    createdAt: row.created_at,
+    source: row.source,
+    telegramChatId: row.telegram_chat_id,
+    clientName: row.client_name,
+    clientPhone: row.client_phone,
+    serviceId: row.service_id,
+    serviceIds,
+    serviceTitle: row.service_title,
+    serviceTitles,
+    serviceCategory: row.service_category,
+    serviceCategories,
+    price: row.price,
+    durationMinutes: row.duration_minutes,
+    date: row.appointment_date,
+    time: row.appointment_time,
+    startAt: row.start_at,
+    endAt: row.end_at,
+  };
+}
+
+function parseJsonObject(value) {
+  try {
+    const parsed = JSON.parse(value || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function parseJsonArray(value) {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
 }
 
 async function loadRequests() {
-  await ensureRequestsStorage();
-  const content = await fsp.readFile(requestsFilePath, "utf8");
-  try {
-    const data = JSON.parse(content);
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
-}
-
-async function ensureAppointmentsStorage() {
-  const dir = path.dirname(appointmentsFilePath);
-  await fsp.mkdir(dir, { recursive: true });
-  if (!fs.existsSync(appointmentsFilePath)) {
-    await fsp.writeFile(appointmentsFilePath, "[]", "utf8");
-  }
+  return database
+    .prepare("SELECT * FROM requests ORDER BY submitted_at DESC")
+    .all()
+    .map(requestRowToObject);
 }
 
 async function loadAppointments() {
-  await ensureAppointmentsStorage();
-  const content = await fsp.readFile(appointmentsFilePath, "utf8");
-  try {
-    const data = JSON.parse(content);
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
+  return database
+    .prepare("SELECT * FROM appointments ORDER BY start_at ASC")
+    .all()
+    .map(appointmentRowToObject);
 }
 
 async function saveRequest(item) {
-  const data = await loadRequests();
-  data.push({
+  insertRequestRow(database, {
     id: crypto.randomUUID(),
     ...item,
   });
-  await fsp.writeFile(requestsFilePath, JSON.stringify(data, null, 2), "utf8");
 }
 
 async function reserveAppointment(item) {
   const operation = appointmentWriteLock.then(async () => {
-    const data = await loadAppointments();
-    const hasOverlap = data.some((existing) => appointmentsOverlap(existing, item.startAt, item.endAt));
+    const hasOverlap = Boolean(
+      database
+        .prepare(
+          `
+            SELECT id FROM appointments
+            WHERE status != 'cancelled'
+              AND start_at < ?
+              AND end_at > ?
+            LIMIT 1
+          `
+        )
+        .get(item.endAt, item.startAt)
+    );
     if (hasOverlap) return false;
 
-    data.push({
+    insertAppointmentRow(database, {
       id: crypto.randomUUID(),
       status: "active",
       createdAt: new Date().toISOString(),
       ...item,
     });
-    await fsp.writeFile(appointmentsFilePath, JSON.stringify(data, null, 2), "utf8");
     return true;
   });
 

@@ -12,6 +12,8 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+data/*.sqlite
+data/*.sqlite-*
 
 # OS / editor files
 .DS_Store
