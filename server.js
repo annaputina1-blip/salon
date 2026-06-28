@@ -18,6 +18,7 @@ const adminPassword = process.env.ADMIN_PASSWORD || "";
 const sessionSecret = process.env.ADMIN_SESSION_SECRET || "change-me-session-secret";
 const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || "";
 const telegramChatId = process.env.TELEGRAM_CHAT_ID || "";
+const telegramAdminIds = parseList(process.env.TELEGRAM_ADMIN_IDS || telegramChatId);
 const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy || "";
 const makeWebhookUrl = process.env.MAKE_WEBHOOK_URL || "";
 const requestsFilePath = path.join(root, "data", "requests.json");
@@ -303,6 +304,8 @@ function initializeDatabase() {
       appointment_time TEXT NOT NULL DEFAULT '',
       start_at TEXT NOT NULL,
       end_at TEXT NOT NULL,
+      cancelled_at TEXT NOT NULL DEFAULT '',
+      cancelled_by TEXT NOT NULL DEFAULT '',
       payload_json TEXT NOT NULL DEFAULT '{}'
     );
 
@@ -310,8 +313,17 @@ function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
   `);
 
+  ensureColumn(db, "appointments", "cancelled_at", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "appointments", "cancelled_by", "TEXT NOT NULL DEFAULT ''");
+
   migrateJsonDataToDatabase(db);
   return db;
+}
+
+function ensureColumn(db, tableName, columnName, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  if (columns.some((column) => column.name === columnName)) return;
+  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
 }
 
 function migrateJsonDataToDatabase(db) {
@@ -385,8 +397,8 @@ function insertAppointmentRow(db, item) {
       id, status, created_at, source, telegram_chat_id, client_name, client_phone,
       service_id, service_ids_json, service_title, service_titles_json,
       service_category, service_categories_json, price, duration_minutes,
-      appointment_date, appointment_time, start_at, end_at, payload_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      appointment_date, appointment_time, start_at, end_at, cancelled_at, cancelled_by, payload_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     item.id || crypto.randomUUID(),
     item.status || "active",
@@ -407,6 +419,8 @@ function insertAppointmentRow(db, item) {
     item.time || "",
     item.startAt || "",
     item.endAt || "",
+    item.cancelledAt || "",
+    item.cancelledBy || "",
     JSON.stringify(item)
   );
 }
@@ -452,6 +466,8 @@ function appointmentRowToObject(row) {
     time: row.appointment_time,
     startAt: row.start_at,
     endAt: row.end_at,
+    cancelledAt: row.cancelled_at,
+    cancelledBy: row.cancelled_by,
   };
 }
 
@@ -586,9 +602,19 @@ async function handleTelegramUpdate(update) {
     return;
   }
 
+  if (text === "/admin") {
+    if (!isTelegramAdmin(chatId)) {
+      await sendTelegramMessage(chatId, "Эта команда вам не доступна");
+      return;
+    }
+
+    await sendAdminMenu(chatId);
+    return;
+  }
+
   if (text === "/appointments") {
-    if (!telegramChatId || String(chatId) !== String(telegramChatId)) {
-      await sendTelegramMessage(chatId, "Эта команда доступна только мастеру.");
+    if (!isTelegramAdmin(chatId)) {
+      await sendTelegramMessage(chatId, "Эта команда вам не доступна");
       return;
     }
     await sendTelegramMessage(chatId, await buildAppointmentsText());
@@ -637,6 +663,16 @@ async function handleTelegramCallback(callback) {
   if (data === "restart") {
     telegramDialogState.set(chatId, {});
     await sendServiceCategories(chatId);
+    return;
+  }
+
+  if (data.startsWith("admin:") || data.startsWith("cancel:")) {
+    if (!isTelegramAdmin(chatId)) {
+      await sendTelegramMessage(chatId, "Эта команда вам не доступна");
+      return;
+    }
+
+    await handleAdminCallback(chatId, data);
     return;
   }
 
@@ -913,6 +949,188 @@ async function notifyAppointmentTelegram(appointment) {
   }
 }
 
+async function sendAdminMenu(chatId) {
+  await sendTelegramMessage(chatId, "Администратор", {
+    inline_keyboard: [
+      [{ text: "Записи на сегодня", callback_data: "admin:today" }],
+      [{ text: "Записи на завтра", callback_data: "admin:tomorrow" }],
+      [{ text: "Все будущие записи", callback_data: "admin:future" }],
+      [{ text: "Статистика за неделю", callback_data: "admin:week" }],
+    ],
+  });
+}
+
+async function handleAdminCallback(chatId, data) {
+  if (data === "admin:menu") {
+    await sendAdminMenu(chatId);
+    return;
+  }
+
+  if (data === "admin:today") {
+    await sendAdminAppointments(chatId, "Записи на сегодня", getDateKeyForOffset(0), getDateKeyForOffset(0));
+    return;
+  }
+
+  if (data === "admin:tomorrow") {
+    await sendAdminAppointments(chatId, "Записи на завтра", getDateKeyForOffset(1), getDateKeyForOffset(1));
+    return;
+  }
+
+  if (data === "admin:future") {
+    await sendFutureAppointments(chatId);
+    return;
+  }
+
+  if (data === "admin:week") {
+    await sendWeeklyStats(chatId);
+    return;
+  }
+
+  if (data.startsWith("cancel:")) {
+    await cancelAppointmentByAdmin(chatId, data.slice("cancel:".length));
+  }
+}
+
+async function sendAdminAppointments(chatId, title, fromDate, toDate) {
+  const rows = database
+    .prepare(
+      `
+        SELECT * FROM appointments
+        WHERE status != 'cancelled'
+          AND appointment_date >= ?
+          AND appointment_date <= ?
+        ORDER BY start_at ASC
+      `
+    )
+    .all(fromDate, toDate)
+    .map(appointmentRowToObject);
+
+  await sendAppointmentList(chatId, title, rows);
+}
+
+async function sendFutureAppointments(chatId) {
+  const rows = database
+    .prepare(
+      `
+        SELECT * FROM appointments
+        WHERE status != 'cancelled'
+          AND start_at >= ?
+        ORDER BY start_at ASC
+        LIMIT 30
+      `
+    )
+    .all(new Date().toISOString())
+    .map(appointmentRowToObject);
+
+  await sendAppointmentList(chatId, "Все будущие записи", rows);
+}
+
+async function sendAppointmentList(chatId, title, rows) {
+  if (!rows.length) {
+    await sendTelegramMessage(chatId, `${title}\n\nЗаписей нет.`, adminBackKeyboard());
+    return;
+  }
+
+  for (const appointment of rows) {
+    await sendTelegramMessage(chatId, formatAdminAppointment(appointment), {
+      inline_keyboard: [
+        [{ text: "Отменить запись", callback_data: `cancel:${appointment.id}` }],
+        [{ text: "Назад в админку", callback_data: "admin:menu" }],
+      ],
+    });
+  }
+}
+
+async function sendWeeklyStats(chatId) {
+  const fromDate = getDateKeyForOffset(-6);
+  const toDate = getDateKeyForOffset(0);
+  const rows = database
+    .prepare(
+      `
+        SELECT * FROM appointments
+        WHERE appointment_date >= ?
+          AND appointment_date <= ?
+        ORDER BY start_at ASC
+      `
+    )
+    .all(fromDate, toDate)
+    .map(appointmentRowToObject);
+
+  const activeRows = rows.filter((item) => item.status !== "cancelled");
+  const cancelledRows = rows.filter((item) => item.status === "cancelled");
+  const totalAmount = activeRows.reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const cancelledAmount = cancelledRows.reduce((sum, item) => sum + Number(item.price || 0), 0);
+
+  const lines = [
+    `Статистика за неделю: ${formatDateRu(fromDate)} - ${formatDateRu(toDate)}`,
+    "",
+    `Всего записей: ${rows.length}`,
+    `Активные/проведенные: ${activeRows.length}`,
+    `Сумма работ: ${formatRub(totalAmount)}`,
+    `Отмененные записи: ${cancelledRows.length}`,
+    `Сумма отмененных: ${formatRub(cancelledAmount)}`,
+    "",
+    rows.length ? "Записи:" : "Записей за период нет.",
+    ...rows.map((item) => `- ${formatDateWithWeekdayRu(item.date)}, ${item.time}: ${item.clientName || "-"}, ${item.serviceTitle || "-"}, ${formatRub(item.price)}${item.status === "cancelled" ? " (отменена)" : ""}`),
+  ];
+
+  await sendTelegramMessage(chatId, lines.join("\n").slice(0, 3900), adminBackKeyboard());
+}
+
+async function cancelAppointmentByAdmin(adminChatId, appointmentId) {
+  const row = database.prepare("SELECT * FROM appointments WHERE id = ? LIMIT 1").get(appointmentId);
+  if (!row) {
+    await sendTelegramMessage(adminChatId, "Запись не найдена.", adminBackKeyboard());
+    return;
+  }
+
+  const appointment = appointmentRowToObject(row);
+  if (appointment.status === "cancelled") {
+    await sendTelegramMessage(adminChatId, "Эта запись уже отменена.", adminBackKeyboard());
+    return;
+  }
+
+  const cancelledAt = new Date().toISOString();
+  database
+    .prepare("UPDATE appointments SET status = 'cancelled', cancelled_at = ?, cancelled_by = ? WHERE id = ?")
+    .run(cancelledAt, String(adminChatId), appointmentId);
+
+  await sendTelegramMessage(adminChatId, `Запись отменена.\n\n${formatAdminAppointment({ ...appointment, status: "cancelled", cancelledAt })}`, adminBackKeyboard());
+
+  if (appointment.telegramChatId) {
+    try {
+      await sendTelegramMessage(
+        appointment.telegramChatId,
+        [
+          "Ваша запись отменена.",
+          "",
+          `Дата и время: ${formatDateWithWeekdayRu(appointment.date)}, ${appointment.time}`,
+          `Услуги: ${appointment.serviceTitle || "-"}`,
+          "Для новой записи нажмите /start.",
+        ].join("\n")
+      );
+    } catch (error) {
+      console.error("Telegram cancellation notification error:", error.message);
+    }
+  }
+}
+
+function formatAdminAppointment(appointment) {
+  return [
+    `${formatDateWithWeekdayRu(appointment.date)}, ${appointment.time}`,
+    `Клиент: ${appointment.clientName || "-"}`,
+    `Телефон: ${appointment.clientPhone || "-"}`,
+    `Услуги: ${appointment.serviceTitle || "-"}`,
+    `Длительность: ${appointment.durationMinutes || "-"} мин.`,
+    `Сумма: ${formatRub(appointment.price)}`,
+    `Статус: ${appointment.status || "active"}`,
+  ].join("\n");
+}
+
+function adminBackKeyboard() {
+  return { inline_keyboard: [[{ text: "Назад в админку", callback_data: "admin:menu" }]] };
+}
+
 async function buildAppointmentsText() {
   const data = await loadAppointments();
   const upcoming = data
@@ -1059,6 +1277,33 @@ function formatDateWithWeekdayRu(date) {
 
 function formatRub(value) {
   return `${new Intl.NumberFormat("ru-RU").format(Number(value || 0))} ₽`;
+}
+
+function parseList(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function isTelegramAdmin(chatId) {
+  return telegramAdminIds.includes(String(chatId));
+}
+
+function parseTimezoneOffsetMinutes(value) {
+  const match = String(value || "+00:00").match(/^([+-])(\d{2}):(\d{2})$/);
+  if (!match) return 0;
+  const sign = match[1] === "-" ? -1 : 1;
+  return sign * (Number(match[2]) * 60 + Number(match[3]));
+}
+
+function getDateKeyForOffset(dayOffset) {
+  const offsetMinutes = parseTimezoneOffsetMinutes(bookingTimezoneOffset);
+  const value = new Date(Date.now() + offsetMinutes * 60 * 1000);
+  value.setUTCDate(value.getUTCDate() + dayOffset);
+  return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    value.getUTCDate()
+  ).padStart(2, "0")}`;
 }
 
 function formatRussianPhone(value) {
