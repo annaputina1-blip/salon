@@ -126,8 +126,9 @@
           <label>Телефон<input id="clientPhone" type="tel" placeholder="+7 ..."></label>
           <label>Удобный день<input id="clientDate" type="text" placeholder="Например: пятница после 18:00"></label>
           <label>Комментарий<textarea id="clientMessage" rows="5" placeholder="Здесь появится расчет из калькулятора"></textarea></label>
+          <a class="button primary telegram-booking" data-telegram-contact href="https://t.me/salonya_bot?start=book">Записаться через Telegram-бота</a>
           <div class="contact-actions" aria-label="Быстрая связь">
-            <a class="button secondary telegram-contact" data-telegram-contact href="https://t.me/salonya_bot?start=book">Записаться в Telegram</a>
+            <a class="button secondary telegram-contact" data-telegram-contact href="https://t.me/salonya_bot?start=book">Записаться через Telegram-бота</a>
             <a class="button secondary whatsapp-contact" data-whatsapp-contact href="https://wa.me/79933060309">Написать в WhatsApp</a>
           </div>
           <div class="policy-info-row">
@@ -162,7 +163,7 @@
       <a href="index.html">Вернуться на сайт</a>
     </footer>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=telegram-bot-booking"></script>
   </body>
 </html>
 

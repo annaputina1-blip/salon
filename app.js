@@ -219,7 +219,11 @@ function updateContactLinks() {
   });
 
   telegramContacts.forEach((link) => {
-    link.href = "https://t.me/MezAnuta";
+    link.href = "https://t.me/salonya_bot?start=book";
+    link.setAttribute("aria-label", "Записаться через Telegram-бота");
+    if (!link.classList.contains("social-button")) {
+      link.textContent = "Записаться через Telegram-бота";
+    }
   });
 }
 

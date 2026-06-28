@@ -885,6 +885,11 @@ input[type="checkbox"]:disabled,
   gap: 10px;
 }
 
+.telegram-booking {
+  width: 100%;
+  justify-content: center;
+}
+
 .contact-actions .button {
   border-radius: 18px;
   box-shadow: 4px 4px 0 var(--ink);
