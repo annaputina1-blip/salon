@@ -6,6 +6,7 @@ const requestsList = document.querySelector("#requestsList");
 const appointmentsList = document.querySelector("#appointmentsList");
 const refreshBtn = document.querySelector("#refreshBtn");
 const logoutBtn = document.querySelector("#logoutBtn");
+let serverTodayKey = "";
 
 function formatDate(isoString) {
   const date = new Date(isoString);
@@ -23,6 +24,7 @@ function escapeHtml(value) {
 }
 
 function getTodayKey() {
+  if (serverTodayKey) return serverTodayKey;
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -123,6 +125,7 @@ async function loadAppointments() {
   }
 
   showAdmin();
+  serverTodayKey = data.todayDate || "";
   renderAppointments(data.appointments || []);
 }
 

@@ -163,7 +163,7 @@ http
 
         const rows = await loadAppointments();
         rows.sort((a, b) => Date.parse(a.startAt || "") - Date.parse(b.startAt || ""));
-        sendJson(response, 200, { ok: true, appointments: rows });
+        sendJson(response, 200, { ok: true, appointments: rows, todayDate: getDateKeyForOffset(0) });
         return;
       }
 
@@ -202,6 +202,7 @@ http
 
         response.writeHead(200, {
           "Content-Type": types[path.extname(filePath)] || "application/octet-stream",
+          ...(requestedPath === "admin.html" || requestedPath === "admin.js" ? { "Cache-Control": "no-store" } : {}),
         });
         response.end(data);
       });
@@ -899,7 +900,7 @@ async function handleTelegramCallback(callback) {
     return;
   }
 
-  if (data.startsWith("admin:") || data.startsWith("schedule:") || data.startsWith("cancel:")) {
+  if (data.startsWith("admin:") || data.startsWith("schedule:") || data.startsWith("cancel:") || data.startsWith("done:")) {
     if (!isTelegramAdmin(chatId)) {
       await sendTelegramMessage(chatId, "Эта команда вам не доступна");
       return;
@@ -1238,6 +1239,11 @@ async function handleAdminCallback(chatId, data) {
 
   if (data.startsWith("cancel:")) {
     await cancelAppointmentByAdmin(chatId, data.slice("cancel:".length));
+    return;
+  }
+
+  if (data.startsWith("done:")) {
+    await completeAppointmentFromTelegram(chatId, data.slice("done:".length));
   }
 }
 
@@ -1296,16 +1302,19 @@ async function sendAppointmentList(chatId, title, rows) {
     lines.push(`Показаны первые ${visibleRows.length} из ${rows.length}.`);
   }
 
-  const cancelRows = chunk(
-    visibleRows.map((item, index) => ({
-      text: `Отменить ${index + 1}`,
-      callback_data: `cancel:${item.id}`,
-    })),
-    2
-  );
+  const actionRows = visibleRows.map((item, index) => {
+    const number = index + 1;
+    if (item.status === "completed") {
+      return [{ text: `Выполнено ${number}`, callback_data: `admin:menu` }];
+    }
+    return [
+      { text: `Отменить ${number}`, callback_data: `cancel:${item.id}` },
+      { text: `Услуга оказана ${number}`, callback_data: `done:${item.id}` },
+    ];
+  });
 
   await sendTelegramMessage(chatId, lines.join("\n").slice(0, 3900), {
-    inline_keyboard: [...cancelRows, [{ text: "Назад в админку", callback_data: "admin:menu" }]],
+    inline_keyboard: [...actionRows, [{ text: "Назад в админку", callback_data: "admin:menu" }]],
   });
 }
 
@@ -1383,6 +1392,26 @@ async function cancelAppointmentByAdmin(adminChatId, appointmentId) {
       console.error("Telegram cancellation notification error:", error.message);
     }
   }
+}
+
+async function completeAppointmentFromTelegram(adminChatId, appointmentId) {
+  const result = completeAppointmentByAdmin(appointmentId, String(adminChatId));
+  if (!result.ok) {
+    await sendTelegramMessage(adminChatId, result.message || "Не удалось отметить услугу оказанной.", adminBackKeyboard());
+    return;
+  }
+
+  await sendTelegramMessage(
+    adminChatId,
+    [
+      "Услуга отмечена как оказанная.",
+      "",
+      formatAdminAppointment(result.appointment),
+      "",
+      "Через 15 минут клиенту будет отправлена просьба оставить отзыв.",
+    ].join("\n"),
+    adminBackKeyboard()
+  );
 }
 
 function formatAdminAppointment(appointment) {
